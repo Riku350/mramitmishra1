@@ -19,13 +19,18 @@ import {
   Eye,
   Share2,
   X,
-  LogIn,
   Shield,
   AlertCircle,
   Loader2,
   PenTool,
+  Home,
 } from 'lucide-react';
-import { useApp, StayRegistration } from '../AppContext';
+import {
+  useApp,
+  StayRegistration,
+  BRAND_NAME,
+  RegistrationSubmitError,
+} from '../AppContext';
 import {
   HINDI_AGREEMENT_CHECKBOX,
   HINDI_AGREEMENT_HEADING,
@@ -33,6 +38,7 @@ import {
   RULES_CONSENT_CHECKBOX_EN,
 } from '../data/hostelRules';
 import { PhotoCropModal } from './PhotoCropModal';
+import { DistrictSelect } from './DistrictSelect';
 import { generateRegistrationPdf } from '../utils/registrationPdf';
 import { optimizeImageFile, readFileAsDataUrl } from '../utils/imageOptimizer';
 
@@ -47,9 +53,31 @@ const STEPS = [
   { num: 8, label: 'Complete', icon: CheckCircle2 },
 ] as const;
 
-const inputClass =
-  'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/15';
+const baseInputClass =
+  'w-full rounded-xl border bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:outline-none focus:ring-2';
+const normalInputClass = `${baseInputClass} border-slate-200 focus:border-blue-500 focus:ring-blue-500/15`;
+const errorInputClass = `${baseInputClass} border-red-500 ring-1 ring-red-500/20 focus:border-red-500 focus:ring-red-500/25`;
 const labelClass = 'block text-xs font-semibold text-slate-700 mb-1.5';
+
+function isValidIndianMobile(raw: string): boolean {
+  let digits = raw.replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) {
+    digits = digits.slice(2);
+  } else if (digits.length === 11 && digits.startsWith('0')) {
+    digits = digits.slice(1);
+  }
+  return /^[6-9]\d{9}$/.test(digits);
+}
+
+function FieldErrorText({ message }: { message?: string }) {
+  if (!message) return null;
+  return (
+    <p role="alert" className="mt-1.5 text-xs font-medium text-red-600 flex items-center gap-1">
+      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+      <span>{message}</span>
+    </p>
+  );
+}
 
 function CameraCaptureModal({
   onCapture,
@@ -174,25 +202,33 @@ export function StayRegistrationView() {
     rooms,
     generalSettings,
     preselectedRoomId,
-    signInWithGoogle,
     submitStayRegistration,
     markRegistrationPdfGenerated,
     showToast,
     setActiveTab,
   } = useApp();
 
+  const hostelBrandName = generalSettings.lodgeName || BRAND_NAME;
+
   const [step, setStep] = useState<number>(1);
-  const [stepError, setStepError] = useState<string | null>(null);
+  const [submitBannerError, setSubmitBannerError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [shakingFields, setShakingFields] = useState<Record<string, boolean>>({});
   const [submitPhase, setSubmitPhase] = useState<'idle' | 'saving' | 'pdf'>('idle');
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const submittingRef = useRef(false);
+  const shakeTimeoutRef = useRef<number | null>(null);
 
-  // Step 1: Student Details
+  // Focusable element refs for unified per-field validation auto-focus
+  const fieldRefs = useRef<Record<string, HTMLElement | null>>({});
+  const registerFieldRef = (key: string) => (el: HTMLElement | null) => {
+    fieldRefs.current[key] = el;
+  };
+
+  // Step 1: Student Details (NO Date of Birth, NO Email)
   const [fullName, setFullName] = useState(user?.displayName || '');
-  const [dateOfBirth, setDateOfBirth] = useState('');
   const [gender, setGender] = useState('Male');
   const [mobile, setMobile] = useState('');
-  const [email, setEmail] = useState(user?.email || '');
   const [addressHouse, setAddressHouse] = useState('');
   const [addressPostOffice, setAddressPostOffice] = useState('');
   const [addressDistrict, setAddressDistrict] = useState('');
@@ -228,10 +264,10 @@ export function StayRegistrationView() {
   const [joiningDate, setJoiningDate] = useState('');
   const [stayDuration, setStayDuration] = useState('Monthly Stay');
 
-  // Step 6: Agreement (Online signature is NOT required — student signs with pen after printing)
+  // Step 6: Agreement (Physical pen signature after printing)
   const [agreementAccepted, setAgreementAccepted] = useState(false);
 
-  // Step 8: Completed Registration & Generated PDF (separated so failed PDF never duplicates registration)
+  // Step 8: Completed Registration & Generated PDF
   const [completedReg, setCompletedReg] = useState<StayRegistration | null>(null);
   const [pdfResult, setPdfResult] = useState<{
     blob: Blob;
@@ -246,11 +282,10 @@ export function StayRegistrationView() {
     Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 
   useEffect(() => {
-    if (user) {
-      if (!fullName && user.displayName) setFullName(user.displayName);
-      if (!email && user.email) setEmail(user.email);
+    if (user?.displayName && !fullName) {
+      setFullName(user.displayName);
     }
-  }, [user, fullName, email]);
+  }, [user, fullName]);
 
   useEffect(() => {
     if (preselectedRoomId) {
@@ -264,11 +299,13 @@ export function StayRegistrationView() {
     }
   }, [preselectedRoomId, rooms]);
 
-  // Clean up object URL on unmount or regenerate
   useEffect(() => {
     return () => {
       if (pdfResult?.blobUrl) {
         URL.revokeObjectURL(pdfResult.blobUrl);
+      }
+      if (shakeTimeoutRef.current != null) {
+        window.clearTimeout(shakeTimeoutRef.current);
       }
     };
   }, [pdfResult]);
@@ -287,8 +324,9 @@ export function StayRegistrationView() {
   }, [availableRooms, roomPreference]);
 
   const selectedRoom = useMemo(() => {
-    return rooms.find((r) => r.id === selectedRoomId) || matchingAvailableRooms[0] || null;
-  }, [rooms, selectedRoomId, matchingAvailableRooms]);
+    if (!selectedRoomId) return null;
+    return rooms.find((r) => r.id === selectedRoomId) || null;
+  }, [rooms, selectedRoomId]);
 
   // Dynamic Read-Only Monthly Rent Summary (computed live from Admin/Firebase)
   const rentSummary = useMemo(() => {
@@ -330,32 +368,177 @@ export function StayRegistrationView() {
     };
   }, [selectedRoom, roomPreference, generalSettings]);
 
+  const clearFieldError = (key: string) => {
+    setFieldErrors((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const triggerShakeAndFocus = (errors: Record<string, string>) => {
+    const keys = Object.keys(errors);
+    if (keys.length === 0) return;
+
+    if (shakeTimeoutRef.current != null) {
+      window.clearTimeout(shakeTimeoutRef.current);
+    }
+    setShakingFields({});
+    window.requestAnimationFrame(() => {
+      const nextShake: Record<string, boolean> = {};
+      for (const k of keys) nextShake[k] = true;
+      setShakingFields(nextShake);
+      shakeTimeoutRef.current = window.setTimeout(() => {
+        setShakingFields({});
+      }, 420);
+    });
+
+    // Focus the FIRST missing/invalid field smoothly without jarring jumps
+    const firstKey = keys[0];
+    window.setTimeout(() => {
+      const el = fieldRefs.current[firstKey];
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const isOutOfView = rect.top < 72 || rect.bottom > window.innerHeight - 80;
+      if (isOutOfView) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      if (typeof (el as HTMLInputElement).focus === 'function') {
+        try {
+          (el as HTMLInputElement).focus({ preventScroll: true });
+        } catch {
+          (el as HTMLInputElement).focus();
+        }
+      }
+    }, 30);
+  };
+
+  const fieldInputClass = (key: string) =>
+    `${fieldErrors[key] ? errorInputClass : normalInputClass} ${
+      shakingFields[key] ? 'animate-field-shake' : ''
+    }`;
+
+  const validateStepFields = (targetStep: number): Record<string, string> => {
+    const errors: Record<string, string> = {};
+
+    if (targetStep === 1) {
+      if (!fullName.trim()) {
+        errors.fullName = 'Please enter your name.';
+      }
+      if (!gender.trim()) {
+        errors.gender = 'Please select your gender.';
+      }
+      if (!mobile.trim()) {
+        errors.mobile = 'Please enter your mobile number.';
+      } else if (!isValidIndianMobile(mobile.trim())) {
+        errors.mobile = 'Please enter a valid mobile number.';
+      }
+      if (!addressHouse.trim()) {
+        errors.addressHouse = 'Please enter your address.';
+      }
+      if (!addressDistrict.trim()) {
+        errors.addressDistrict = 'Please select your district.';
+      }
+      if (!addressState.trim()) {
+        errors.addressState = 'Please enter your state.';
+      }
+      if (!/^[0-9]{6}$/.test(addressPin.trim())) {
+        errors.addressPin = 'Please enter a valid 6-digit PIN code.';
+      }
+    }
+
+    if (targetStep === 2) {
+      if (!fatherName.trim()) {
+        errors.fatherName = 'Please enter your parent name.';
+      }
+      if (!motherName.trim()) {
+        errors.motherName = "Please enter your mother's name.";
+      }
+      if (!parentMobile.trim()) {
+        errors.parentMobile = 'Please enter your parent mobile number.';
+      } else if (!isValidIndianMobile(parentMobile.trim())) {
+        errors.parentMobile = 'Please enter a valid mobile number.';
+      }
+      if (emergencyContact.trim() && !isValidIndianMobile(emergencyContact.trim())) {
+        errors.emergencyContact = 'Please enter a valid mobile number.';
+      }
+    }
+
+    if (targetStep === 3) {
+      if (!idProofDataUrl) {
+        errors.idProof = 'Please upload your ID proof.';
+      }
+    }
+
+    if (targetStep === 4) {
+      if (!croppedPhotoUrl) {
+        errors.photo = 'Please upload your photo.';
+      } else if (!photoConfirmed) {
+        errors.photo = 'Please confirm your photo before continuing.';
+      }
+    }
+
+    if (targetStep === 5) {
+      if (matchingAvailableRooms.length > 0 && !selectedRoom) {
+        errors.roomSelection = 'Please select a room.';
+      }
+      if (!joiningDate.trim()) {
+        errors.joiningDate = 'Please select your joining date.';
+      }
+      if (!stayDuration.trim()) {
+        errors.stayDuration = 'Please select your stay duration.';
+      }
+    }
+
+    if (targetStep === 6) {
+      if (!agreementAccepted) {
+        errors.agreement = 'Please accept the hostel agreement.';
+      }
+    }
+
+    return errors;
+  };
+
   const handleIdProofUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setStepError(null);
+    setSubmitBannerError(null);
+    clearFieldError('idProof');
 
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
-    if (!allowedTypes.includes(file.type)) {
-      setStepError('Only JPG, JPEG, PNG, or PDF files are allowed for Identity Proof.');
+    const lowerName = file.name.toLowerCase();
+    const inferredMime =
+      file.type ||
+      (lowerName.endsWith('.pdf')
+        ? 'application/pdf'
+        : lowerName.endsWith('.png')
+          ? 'image/png'
+          : 'image/jpeg');
+
+    if (!allowedTypes.includes(inferredMime)) {
+      const msg = 'Only JPG, JPEG, PNG, or PDF files are allowed for Identity Proof.';
+      setFieldErrors({ idProof: msg });
+      triggerShakeAndFocus({ idProof: msg });
       return;
     }
 
-    const maxBytes = file.type === 'application/pdf' ? 620 * 1024 : 8 * 1024 * 1024;
+    const maxBytes = inferredMime === 'application/pdf' ? 620 * 1024 : 8 * 1024 * 1024;
     if (file.size > maxBytes) {
-      setStepError(
-        file.type === 'application/pdf'
-          ? 'PDF Identity Proof must be under 600 KB. Please upload a smaller PDF or JPG/PNG photo.'
-          : 'Image file must be under 8 MB.'
-      );
+      const msg =
+        inferredMime === 'application/pdf'
+          ? 'PDF file must be under 600 KB. Please upload a smaller PDF or JPG/PNG photo.'
+          : 'Image file must be under 8 MB.';
+      setFieldErrors({ idProof: msg });
+      triggerShakeAndFocus({ idProof: msg });
       return;
     }
 
     setUploadingDoc(true);
     try {
       let dataUrl = '';
-      let finalMime = file.type;
-      if (file.type.startsWith('image/')) {
+      let finalMime = inferredMime;
+      if (inferredMime.startsWith('image/')) {
         const optimized = await optimizeImageFile(file, {
           maxDimension: 1200,
           quality: 0.78,
@@ -370,9 +553,12 @@ export function StayRegistrationView() {
       setIdProofFileName(file.name);
       setIdProofMimeType(finalMime);
       setIdProofDataUrl(dataUrl);
+      clearFieldError('idProof');
       showToast('Identity proof uploaded.', 'success');
     } catch {
-      setStepError('Unable to read the selected file. Please try another file.');
+      const msg = 'Unable to read the selected file. Please try another file.';
+      setFieldErrors({ idProof: msg });
+      triggerShakeAndFocus({ idProof: msg });
     } finally {
       setUploadingDoc(false);
       if (idInputRef.current) idInputRef.current.value = '';
@@ -382,13 +568,19 @@ export function StayRegistrationView() {
   const handleSelectPhotoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setStepError(null);
-    if (!file.type.startsWith('image/')) {
-      setStepError('Please select a valid JPG or PNG photo.');
+    setSubmitBannerError(null);
+    clearFieldError('photo');
+
+    if (file.type && !file.type.startsWith('image/')) {
+      const msg = 'Please select a valid JPG or PNG photo.';
+      setFieldErrors({ photo: msg });
+      triggerShakeAndFocus({ photo: msg });
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      setStepError('Photo must be smaller than 10 MB.');
+      const msg = 'Photo must be smaller than 10 MB.';
+      setFieldErrors({ photo: msg });
+      triggerShakeAndFocus({ photo: msg });
       return;
     }
     try {
@@ -397,70 +589,31 @@ export function StayRegistrationView() {
       setPhotoConfirmed(false);
       setCropModalOpen(true);
     } catch {
-      setStepError('Unable to read the selected photo.');
+      const msg = 'Unable to read the selected photo. Please try again.';
+      setFieldErrors({ photo: msg });
+      triggerShakeAndFocus({ photo: msg });
     } finally {
       if (galleryInputRef.current) galleryInputRef.current.value = '';
       if (mobileCameraInputRef.current) mobileCameraInputRef.current.value = '';
     }
   };
 
-  const validateStep = (targetStep: number): string | null => {
-    const mobilePattern = /^[0-9+\-\s]{10,15}$/;
-
-    if (targetStep === 1) {
-      if (!fullName.trim()) return 'Please enter your full name.';
-      if (!dateOfBirth.trim()) return 'Please enter your date of birth.';
-      if (!gender.trim()) return 'Please select your gender.';
-      if (!mobilePattern.test(mobile.trim())) return 'Please enter a valid 10-digit mobile number.';
-      if (!addressHouse.trim()) return 'Please enter your House / Village address.';
-      if (!addressDistrict.trim()) return 'Please enter your District.';
-      if (!addressState.trim()) return 'Please enter your State.';
-      if (!/^[0-9]{6}$/.test(addressPin.trim())) return 'Please enter a valid 6-digit PIN code.';
-    }
-
-    if (targetStep === 2) {
-      if (!fatherName.trim()) return "Please enter your father's name.";
-      if (!motherName.trim()) return "Please enter your mother's name.";
-      if (!mobilePattern.test(parentMobile.trim()))
-        return 'Please enter a valid parent / guardian mobile number.';
-    }
-
-    if (targetStep === 3) {
-      if (!idProofDataUrl) return 'Please upload your Identity Proof.';
-    }
-
-    if (targetStep === 4) {
-      if (!croppedPhotoUrl) return 'Please select and crop your student photo.';
-      if (!photoConfirmed) return 'Please click "Confirm Photo" before continuing.';
-    }
-
-    if (targetStep === 5) {
-      if (!joiningDate.trim()) return 'Please select your joining date.';
-      if (!stayDuration.trim()) return 'Please select your expected stay duration.';
-    }
-
-    if (targetStep === 6) {
-      if (!agreementAccepted) {
-        return 'Please accept the hostel agreement before continuing.';
-      }
-    }
-
-    return null;
-  };
-
   const goNext = () => {
-    const err = validateStep(step);
-    if (err) {
-      setStepError(err);
+    const errors = validateStepFields(step);
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      triggerShakeAndFocus(errors);
       return;
     }
-    setStepError(null);
+    setFieldErrors({});
+    setSubmitBannerError(null);
     setStep((s) => Math.min(7, s + 1));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const goBack = () => {
-    setStepError(null);
+    setFieldErrors({});
+    setSubmitBannerError(null);
     setStep((s) => Math.max(1, s - 1));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -473,13 +626,11 @@ export function StayRegistrationView() {
         registrationId: reg.registrationId,
         registrationDateIST: reg.registrationDateIST,
         registrationTimeIST: reg.registrationTimeIST,
-        hostelName: generalSettings.lodgeName || 'Student Hostel',
+        hostelName: hostelBrandName,
         hostelSubName: generalSettings.lodgeNameHindi,
         fullName: reg.fullName,
-        dateOfBirth: reg.dateOfBirth,
         gender: reg.gender,
         mobile: reg.mobile,
-        email: reg.email,
         addressHouse: reg.addressHouse,
         addressPostOffice: reg.addressPostOffice,
         addressDistrict: reg.addressDistrict,
@@ -515,7 +666,7 @@ export function StayRegistrationView() {
       showToast('PDF generated successfully.', 'success');
     } catch {
       setPdfError(
-        'Registration saved successfully, but the PDF could not be generated. You can generate it again from your registration details.'
+        'Registration saved successfully, but the PDF could not be generated. Click "Generate PDF Again" below.'
       );
     } finally {
       setSubmitPhase('idle');
@@ -526,55 +677,46 @@ export function StayRegistrationView() {
     // Prevent double-click duplicate submissions
     if (submittingRef.current) return;
 
-    // If registration was already saved and only PDF failed, regenerate PDF without creating a duplicate!
+    // If registration was already saved and only PDF failed, regenerate PDF without creating a duplicate
     if (completedReg) {
       await buildPdfFromRegistration(completedReg);
       setStep(8);
       return;
     }
 
-    // Re-validate every step cleanly
+    // Re-validate every step cleanly before submitting
     for (let s = 1; s <= 6; s++) {
-      const err = validateStep(s);
-      if (err) {
+      const errs = validateStepFields(s);
+      if (Object.keys(errs).length > 0) {
         setStep(s);
-        setStepError(err);
+        setFieldErrors(errs);
+        window.setTimeout(() => triggerShakeAndFocus(errs), 40);
         return;
       }
     }
 
     submittingRef.current = true;
-    setStepError(null);
+    setSubmitBannerError(null);
+    setFieldErrors({});
+    setSubmitPhase('saving');
 
     try {
-      let activeUser = user;
-      if (!activeUser) {
-        activeUser = await signInWithGoogle();
-        if (!activeUser) {
-          setStepError('Please sign in with Google to save your hostel stay registration.');
-          return;
-        }
-      }
-
-      setSubmitPhase('saving');
-
+      // Student login is NOT required — submit directly with current user (or guest session)
       const saved = await submitStayRegistration(
         {
-          fullName,
-          dateOfBirth,
-          gender,
-          mobile,
-          email,
-          addressHouse,
-          addressPostOffice,
-          addressDistrict,
-          addressState,
-          addressPin,
-          fatherName,
-          motherName,
-          parentMobile,
-          emergencyContact,
-          emergencyRelation,
+          fullName: fullName.trim(),
+          gender: gender.trim(),
+          mobile: mobile.trim(),
+          addressHouse: addressHouse.trim(),
+          addressPostOffice: addressPostOffice.trim(),
+          addressDistrict: addressDistrict.trim(),
+          addressState: addressState.trim(),
+          addressPin: addressPin.trim(),
+          fatherName: fatherName.trim(),
+          motherName: motherName.trim(),
+          parentMobile: parentMobile.trim(),
+          emergencyContact: emergencyContact.trim(),
+          emergencyRelation: emergencyRelation.trim(),
           idProofType,
           idProofFileName,
           idProofMimeType,
@@ -590,7 +732,7 @@ export function StayRegistrationView() {
           joiningDate,
           stayDuration,
         },
-        activeUser
+        user
       );
 
       // Save completed record immediately BEFORE generating PDF so PDF errors never cause duplicate saves
@@ -598,10 +740,12 @@ export function StayRegistrationView() {
       await buildPdfFromRegistration(saved);
       setStep(8);
       window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch {
-      setStepError(
-        'Could not save registration right now. Please make sure you are signed in and try again.'
-      );
+    } catch (err) {
+      const friendlyMessage =
+        err instanceof RegistrationSubmitError
+          ? err.userMessage
+          : 'Unable to submit registration. Please check your connection and try again.';
+      setSubmitBannerError(friendlyMessage);
       setSubmitPhase('idle');
     } finally {
       submittingRef.current = false;
@@ -646,8 +790,8 @@ export function StayRegistrationView() {
       const file = new File([pdfResult.blob], pdfResult.fileName, { type: 'application/pdf' });
       if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
-          title: `Hostel Registration - ${completedReg.registrationId}`,
-          text: `Student Hostel Stay Registration (${completedReg.registrationId}) for ${completedReg.fullName}.`,
+          title: `${hostelBrandName} Registration - ${completedReg.registrationId}`,
+          text: `${hostelBrandName} Stay Registration (${completedReg.registrationId}) for ${completedReg.fullName}.`,
           files: [file],
         });
         return;
@@ -666,23 +810,17 @@ export function StayRegistrationView() {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
+          <p className="text-xs font-semibold text-blue-700 tracking-wide mb-1">
+            🏠 {hostelBrandName}
+          </p>
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
             Stay Registration
           </h1>
           <p className="text-sm sm:text-base text-slate-600 mt-1">
-            Complete your monthly hostel stay registration and generate your print-ready PDF.
+            Complete your monthly stay registration at {hostelBrandName} and generate your
+            print-ready PDF. No login required.
           </p>
         </div>
-        {!user && step < 8 && (
-          <button
-            type="button"
-            onClick={signInWithGoogle}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-xs sm:text-sm font-semibold hover:bg-blue-100 self-start sm:self-auto"
-          >
-            <LogIn className="w-4 h-4" />
-            <span>Sign In to Save Registration</span>
-          </button>
-        )}
       </div>
 
       {/* 8-Step Progress Indicator */}
@@ -701,7 +839,8 @@ export function StayRegistrationView() {
                   disabled={s.num > step || step === 8}
                   onClick={() => {
                     if (s.num < step && step < 8) {
-                      setStepError(null);
+                      setFieldErrors({});
+                      setSubmitBannerError(null);
                       setStep(s.num);
                     }
                   }}
@@ -722,14 +861,14 @@ export function StayRegistrationView() {
         </ol>
       </nav>
 
-      {/* Inline Validation Banner */}
-      {stepError && (
+      {/* Submission Error Banner (only for submit / network errors) */}
+      {submitBannerError && (
         <div
           role="alert"
-          className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3.5 flex items-center gap-3 text-sm text-amber-900"
+          className="bg-red-50 border border-red-200 rounded-2xl px-4 py-3.5 flex items-center gap-3 text-sm text-red-900"
         >
-          <AlertCircle className="w-4 h-4 text-amber-700 shrink-0" />
-          <span>{stepError}</span>
+          <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+          <span>{submitBannerError}</span>
         </div>
       )}
 
@@ -739,60 +878,72 @@ export function StayRegistrationView() {
           <div>
             <h2 className="text-xl font-bold text-slate-900">Student Details</h2>
             <p className="text-sm text-slate-500 mt-0.5">
-              Enter your personal information and permanent address accurately.
+              Enter your name, mobile number, and permanent address accurately.
             </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className={labelClass}>Full Name *</label>
+            <div className="sm:col-span-2">
+              <label htmlFor="reg-full-name" className={labelClass}>
+                Full Name *
+              </label>
               <input
+                id="reg-full-name"
+                ref={registerFieldRef('fullName')}
                 value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
+                onChange={(e) => {
+                  setFullName(e.target.value);
+                  if (e.target.value.trim()) clearFieldError('fullName');
+                }}
                 placeholder="e.g. Rahul Kumar"
-                className={inputClass}
+                aria-invalid={Boolean(fieldErrors.fullName)}
+                className={fieldInputClass('fullName')}
               />
+              <FieldErrorText message={fieldErrors.fullName} />
             </div>
+
             <div>
-              <label className={labelClass}>Date of Birth *</label>
-              <input
-                type="date"
-                value={dateOfBirth}
-                onChange={(e) => setDateOfBirth(e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Gender *</label>
+              <label htmlFor="reg-gender" className={labelClass}>
+                Gender *
+              </label>
               <select
+                id="reg-gender"
+                ref={registerFieldRef('gender')}
                 value={gender}
-                onChange={(e) => setGender(e.target.value)}
-                className={inputClass}
+                onChange={(e) => {
+                  setGender(e.target.value);
+                  if (e.target.value.trim()) clearFieldError('gender');
+                }}
+                aria-invalid={Boolean(fieldErrors.gender)}
+                className={fieldInputClass('gender')}
               >
                 <option value="Male">Male</option>
                 <option value="Female">Female</option>
                 <option value="Other">Other</option>
               </select>
+              <FieldErrorText message={fieldErrors.gender} />
             </div>
+
             <div>
-              <label className={labelClass}>Mobile Number *</label>
+              <label htmlFor="reg-mobile" className={labelClass}>
+                Mobile Number *
+              </label>
               <input
+                id="reg-mobile"
+                ref={registerFieldRef('mobile')}
                 type="tel"
+                inputMode="numeric"
                 value={mobile}
-                onChange={(e) => setMobile(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/[^0-9+\-\s]/g, '').slice(0, 15);
+                  setMobile(val);
+                  if (isValidIndianMobile(val)) clearFieldError('mobile');
+                }}
                 placeholder="10-digit student mobile number"
-                className={inputClass}
+                aria-invalid={Boolean(fieldErrors.mobile)}
+                className={fieldInputClass('mobile')}
               />
-            </div>
-            <div className="sm:col-span-2">
-              <label className={labelClass}>Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="student@example.com"
-                className={inputClass}
-              />
+              <FieldErrorText message={fieldErrors.mobile} />
             </div>
           </div>
 
@@ -800,49 +951,97 @@ export function StayRegistrationView() {
             <h3 className="text-sm font-bold text-slate-900">Complete Address</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
-                <label className={labelClass}>House / Village *</label>
+                <label htmlFor="reg-address-house" className={labelClass}>
+                  House / Village *
+                </label>
                 <input
+                  id="reg-address-house"
+                  ref={registerFieldRef('addressHouse')}
                   value={addressHouse}
-                  onChange={(e) => setAddressHouse(e.target.value)}
+                  onChange={(e) => {
+                    setAddressHouse(e.target.value);
+                    if (e.target.value.trim()) clearFieldError('addressHouse');
+                  }}
                   placeholder="House No., Street, or Village Name"
-                  className={inputClass}
+                  aria-invalid={Boolean(fieldErrors.addressHouse)}
+                  className={fieldInputClass('addressHouse')}
                 />
+                <FieldErrorText message={fieldErrors.addressHouse} />
               </div>
+
               <div>
-                <label className={labelClass}>Post Office</label>
+                <label htmlFor="reg-address-po" className={labelClass}>
+                  Post Office
+                </label>
                 <input
+                  id="reg-address-po"
                   value={addressPostOffice}
                   onChange={(e) => setAddressPostOffice(e.target.value)}
-                  placeholder="Post Office"
-                  className={inputClass}
+                  placeholder="Post Office (Optional)"
+                  className={normalInputClass}
                 />
               </div>
-              <div>
-                <label className={labelClass}>District *</label>
-                <input
+
+              <div className={shakingFields.addressDistrict ? 'animate-field-shake' : ''}>
+                <label htmlFor="reg-district" className={labelClass}>
+                  Select District *
+                </label>
+                <DistrictSelect
+                  id="reg-district"
                   value={addressDistrict}
-                  onChange={(e) => setAddressDistrict(e.target.value)}
-                  placeholder="District"
-                  className={inputClass}
+                  placeholder="Select your district"
+                  hasError={Boolean(fieldErrors.addressDistrict)}
+                  triggerRef={registerFieldRef('addressDistrict')}
+                  onChange={(district, stateName) => {
+                    setAddressDistrict(district);
+                    clearFieldError('addressDistrict');
+                    if (stateName && stateName !== 'Other States & UTs') {
+                      setAddressState(stateName);
+                      clearFieldError('addressState');
+                    }
+                  }}
                 />
+                <FieldErrorText message={fieldErrors.addressDistrict} />
               </div>
+
               <div>
-                <label className={labelClass}>State *</label>
+                <label htmlFor="reg-state" className={labelClass}>
+                  State *
+                </label>
                 <input
+                  id="reg-state"
+                  ref={registerFieldRef('addressState')}
                   value={addressState}
-                  onChange={(e) => setAddressState(e.target.value)}
+                  onChange={(e) => {
+                    setAddressState(e.target.value);
+                    if (e.target.value.trim()) clearFieldError('addressState');
+                  }}
                   placeholder="State"
-                  className={inputClass}
+                  aria-invalid={Boolean(fieldErrors.addressState)}
+                  className={fieldInputClass('addressState')}
                 />
+                <FieldErrorText message={fieldErrors.addressState} />
               </div>
+
               <div>
-                <label className={labelClass}>PIN Code *</label>
+                <label htmlFor="reg-pin" className={labelClass}>
+                  PIN Code *
+                </label>
                 <input
+                  id="reg-pin"
+                  ref={registerFieldRef('addressPin')}
+                  inputMode="numeric"
                   value={addressPin}
-                  onChange={(e) => setAddressPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                  onChange={(e) => {
+                    const pin = e.target.value.replace(/[^0-9]/g, '').slice(0, 6);
+                    setAddressPin(pin);
+                    if (/^[0-9]{6}$/.test(pin)) clearFieldError('addressPin');
+                  }}
                   placeholder="6-digit PIN code"
-                  className={inputClass}
+                  aria-invalid={Boolean(fieldErrors.addressPin)}
+                  className={fieldInputClass('addressPin')}
                 />
+                <FieldErrorText message={fieldErrors.addressPin} />
               </div>
             </div>
           </div>
@@ -861,50 +1060,97 @@ export function StayRegistrationView() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className={labelClass}>Father&apos;s Name *</label>
+              <label htmlFor="reg-father-name" className={labelClass}>
+                Father&apos;s Name *
+              </label>
               <input
+                id="reg-father-name"
+                ref={registerFieldRef('fatherName')}
                 value={fatherName}
-                onChange={(e) => setFatherName(e.target.value)}
+                onChange={(e) => {
+                  setFatherName(e.target.value);
+                  if (e.target.value.trim()) clearFieldError('fatherName');
+                }}
                 placeholder="Father's full name"
-                className={inputClass}
+                aria-invalid={Boolean(fieldErrors.fatherName)}
+                className={fieldInputClass('fatherName')}
               />
+              <FieldErrorText message={fieldErrors.fatherName} />
             </div>
+
             <div>
-              <label className={labelClass}>Mother&apos;s Name *</label>
+              <label htmlFor="reg-mother-name" className={labelClass}>
+                Mother&apos;s Name *
+              </label>
               <input
+                id="reg-mother-name"
+                ref={registerFieldRef('motherName')}
                 value={motherName}
-                onChange={(e) => setMotherName(e.target.value)}
+                onChange={(e) => {
+                  setMotherName(e.target.value);
+                  if (e.target.value.trim()) clearFieldError('motherName');
+                }}
                 placeholder="Mother's full name"
-                className={inputClass}
+                aria-invalid={Boolean(fieldErrors.motherName)}
+                className={fieldInputClass('motherName')}
               />
+              <FieldErrorText message={fieldErrors.motherName} />
             </div>
+
             <div>
-              <label className={labelClass}>Parent / Guardian Mobile Number *</label>
+              <label htmlFor="reg-parent-mobile" className={labelClass}>
+                Parent / Guardian Mobile Number *
+              </label>
               <input
+                id="reg-parent-mobile"
+                ref={registerFieldRef('parentMobile')}
                 type="tel"
+                inputMode="numeric"
                 value={parentMobile}
-                onChange={(e) => setParentMobile(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/[^0-9+\-\s]/g, '').slice(0, 15);
+                  setParentMobile(val);
+                  if (isValidIndianMobile(val)) clearFieldError('parentMobile');
+                }}
                 placeholder="10-digit parent mobile number"
-                className={inputClass}
+                aria-invalid={Boolean(fieldErrors.parentMobile)}
+                className={fieldInputClass('parentMobile')}
               />
+              <FieldErrorText message={fieldErrors.parentMobile} />
             </div>
+
             <div>
-              <label className={labelClass}>Alternate Emergency Contact (Optional)</label>
+              <label htmlFor="reg-emergency-contact" className={labelClass}>
+                Alternate Emergency Contact (Optional)
+              </label>
               <input
+                id="reg-emergency-contact"
+                ref={registerFieldRef('emergencyContact')}
                 type="tel"
+                inputMode="numeric"
                 value={emergencyContact}
-                onChange={(e) => setEmergencyContact(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/[^0-9+\-\s]/g, '').slice(0, 15);
+                  setEmergencyContact(val);
+                  if (!val.trim() || isValidIndianMobile(val)) clearFieldError('emergencyContact');
+                }}
                 placeholder="Optional alternate phone"
-                className={inputClass}
+                aria-invalid={Boolean(fieldErrors.emergencyContact)}
+                className={fieldInputClass('emergencyContact')}
               />
+              <FieldErrorText message={fieldErrors.emergencyContact} />
             </div>
+
             <div>
-              <label className={labelClass}>Relationship (Optional)</label>
+              <label htmlFor="reg-emergency-relation" className={labelClass}>
+                Relationship (Optional)
+              </label>
               <input
+                id="reg-emergency-relation"
                 value={emergencyRelation}
                 onChange={(e) => setEmergencyRelation(e.target.value)}
                 placeholder="e.g. Father, Guardian, Elder Brother"
-                className={inputClass}
+                className={normalInputClass}
               />
             </div>
           </div>
@@ -949,91 +1195,107 @@ export function StayRegistrationView() {
             className="hidden"
           />
 
-          {!idProofDataUrl ? (
-            <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center space-y-3 bg-slate-50/50">
-              <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
-                {uploadingDoc ? (
-                  <Loader2 className="w-6 h-6 animate-spin" />
-                ) : (
-                  <Upload className="w-6 h-6" />
-                )}
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-900">
-                  {uploadingDoc ? 'Uploading Document...' : `Upload ${idProofType}`}
-                </p>
-                <p className="text-xs text-slate-500">
-                  Allowed formats: JPG, JPEG, PNG (up to 8 MB) or PDF (up to 600 KB)
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled={uploadingDoc}
-                onClick={() => idInputRef.current?.click()}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60"
+          <div className={shakingFields.idProof ? 'animate-field-shake' : ''}>
+            {!idProofDataUrl ? (
+              <div
+                className={`border-2 border-dashed rounded-2xl p-8 text-center space-y-3 transition-colors ${
+                  fieldErrors.idProof
+                    ? 'border-red-500 bg-red-50/40'
+                    : 'border-slate-200 bg-slate-50/50'
+                }`}
               >
-                <Upload className="w-4 h-4" />
-                <span>{uploadingDoc ? 'Uploading Document...' : 'Upload Identity Proof'}</span>
-              </button>
-            </div>
-          ) : (
-            <div className="border border-slate-200 rounded-2xl p-5 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-slate-900 truncate">{idProofFileName}</p>
-                  <p className="text-xs text-emerald-700 font-medium">
-                    {idProofType} · Uploaded &amp; ready for private storage
+                <div
+                  className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto ${
+                    fieldErrors.idProof
+                      ? 'bg-red-100 text-red-600'
+                      : 'bg-blue-50 text-blue-600'
+                  }`}
+                >
+                  {uploadingDoc ? (
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  ) : (
+                    <Upload className="w-6 h-6" />
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {uploadingDoc ? 'Uploading Document...' : `Upload ${idProofType}`}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Allowed formats: JPG, JPEG, PNG (up to 8 MB) or PDF (up to 600 KB)
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => idInputRef.current?.click()}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Replace</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIdProofDataUrl(null);
-                      setIdProofFileName('');
-                      setIdProofMimeType('');
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-amber-200 text-xs font-medium text-amber-800 hover:bg-amber-50"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Remove</span>
-                  </button>
-                </div>
+                <button
+                  ref={registerFieldRef('idProof')}
+                  type="button"
+                  disabled={uploadingDoc}
+                  onClick={() => idInputRef.current?.click()}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>{uploadingDoc ? 'Uploading Document...' : 'Upload Identity Proof'}</span>
+                </button>
               </div>
-
-              {idProofMimeType.startsWith('image/') ? (
-                <div className="rounded-xl overflow-hidden border border-slate-100 bg-slate-50 flex justify-center p-3">
-                  <img
-                    src={idProofDataUrl}
-                    alt="Uploaded ID Proof preview"
-                    className="max-h-64 object-contain rounded-lg"
-                  />
-                </div>
-              ) : (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 flex items-center gap-3">
-                  <FileText className="w-8 h-8 text-blue-600 shrink-0" />
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">PDF Document Attached</p>
-                    <p className="text-xs text-slate-500">{idProofFileName}</p>
+            ) : (
+              <div className="border border-slate-200 rounded-2xl p-5 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-slate-900 truncate">{idProofFileName}</p>
+                    <p className="text-xs text-emerald-700 font-medium">
+                      {idProofType} · Uploaded &amp; ready for private storage
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => idInputRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Replace</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIdProofDataUrl(null);
+                        setIdProofFileName('');
+                        setIdProofMimeType('');
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-amber-200 text-xs font-medium text-amber-800 hover:bg-amber-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Remove</span>
+                    </button>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
+
+                {idProofMimeType.startsWith('image/') ? (
+                  <div className="rounded-xl overflow-hidden border border-slate-100 bg-slate-50 flex justify-center p-3">
+                    <img
+                      src={idProofDataUrl}
+                      alt="Uploaded ID Proof preview"
+                      className="max-h-64 object-contain rounded-lg"
+                    />
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 flex items-center gap-3">
+                    <FileText className="w-8 h-8 text-blue-600 shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">PDF Document Attached</p>
+                      <p className="text-xs text-slate-500">{idProofFileName}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            <FieldErrorText message={fieldErrors.idProof} />
+          </div>
 
           <div className="flex items-start gap-2.5 text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-xl p-3.5">
             <Shield className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
             <span>
-              Your ID proof is stored privately and is strictly restricted to you and authorized
-              hostel administration. It is never publicly displayed.
+              Your ID proof is stored privately and is strictly restricted to authorized hostel
+              administration at {hostelBrandName}. It is never publicly displayed.
             </span>
           </div>
         </section>
@@ -1066,100 +1328,121 @@ export function StayRegistrationView() {
             className="hidden"
           />
 
-          {!croppedPhotoUrl ? (
-            <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center space-y-4 bg-slate-50/50">
-              <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
-                <Camera className="w-7 h-7" />
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-900">Upload Student Photo</p>
-                <p className="text-xs text-slate-500">
-                  Passport Size, ID Size, Standard, and Custom crop presets with zoom &amp; rotate.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => galleryInputRef.current?.click()}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700"
+          <div className={shakingFields.photo ? 'animate-field-shake' : ''}>
+            {!croppedPhotoUrl ? (
+              <div
+                className={`border-2 border-dashed rounded-2xl p-8 text-center space-y-4 transition-colors ${
+                  fieldErrors.photo
+                    ? 'border-red-500 bg-red-50/40'
+                    : 'border-slate-200 bg-slate-50/50'
+                }`}
+              >
+                <div
+                  className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto ${
+                    fieldErrors.photo
+                      ? 'bg-red-100 text-red-600'
+                      : 'bg-blue-50 text-blue-600'
+                  }`}
                 >
-                  <Upload className="w-4 h-4" />
-                  <span>Choose from Gallery</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (supportsCamera) setCameraModalOpen(true);
-                    else mobileCameraInputRef.current?.click();
-                  }}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50"
-                >
-                  <Camera className="w-4 h-4 text-blue-600" />
-                  <span>Take Photo</span>
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="border border-slate-200 rounded-2xl p-6 flex flex-col sm:flex-row items-center gap-6">
-              <div className="p-2 rounded-2xl border border-slate-200 bg-slate-50 shrink-0">
-                <img
-                  src={croppedPhotoUrl}
-                  alt="Cropped student photo preview"
-                  className="w-36 h-44 object-contain rounded-xl bg-white"
-                />
-              </div>
-
-              <div className="flex-1 space-y-4 text-center sm:text-left">
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Photo Preview</h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    {photoConfirmed
-                      ? 'Photo confirmed! This cropped photo will be inserted cleanly into your PDF.'
-                      : 'Review your cropped photo and click Confirm Photo to continue.'}
+                  <Camera className="w-7 h-7" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-slate-900">Upload Student Photo</p>
+                  <p className="text-xs text-slate-500">
+                    Passport Size, ID Size, Standard, and Custom crop presets with zoom &amp; rotate.
                   </p>
                 </div>
-
-                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
+                <div className="flex flex-wrap items-center justify-center gap-3">
                   <button
+                    ref={registerFieldRef('photo')}
                     type="button"
                     onClick={() => galleryInputRef.current?.click()}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                   >
-                    <RefreshCw className="w-4 h-4" />
-                    <span>Change Photo</span>
+                    <Upload className="w-4 h-4" />
+                    <span>Choose from Gallery</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      if (originalPhotoUrl) {
-                        setPhotoConfirmed(false);
-                        setCropModalOpen(true);
-                      }
+                      if (supportsCamera) setCameraModalOpen(true);
+                      else mobileCameraInputRef.current?.click();
                     }}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50"
                   >
-                    <Crop className="w-4 h-4" />
-                    <span>Crop Again</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPhotoConfirmed(true);
-                      setStepError(null);
-                    }}
-                    className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-colors ${
-                      photoConfirmed
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-blue-600 text-white hover:bg-blue-700'
-                    }`}
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>{photoConfirmed ? 'Photo Confirmed' : 'Confirm Photo'}</span>
+                    <Camera className="w-4 h-4 text-blue-600" />
+                    <span>Take Photo</span>
                   </button>
                 </div>
               </div>
-            </div>
-          )}
+            ) : (
+              <div
+                className={`border rounded-2xl p-6 flex flex-col sm:flex-row items-center gap-6 transition-colors ${
+                  fieldErrors.photo ? 'border-red-500 bg-red-50/30' : 'border-slate-200'
+                }`}
+              >
+                <div className="p-2 rounded-2xl border border-slate-200 bg-slate-50 shrink-0">
+                  <img
+                    src={croppedPhotoUrl}
+                    alt="Cropped student photo preview"
+                    className="w-36 h-44 object-contain rounded-xl bg-white"
+                  />
+                </div>
+
+                <div className="flex-1 space-y-4 text-center sm:text-left">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Photo Preview</h3>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {photoConfirmed
+                        ? 'Photo confirmed! This cropped photo will be inserted cleanly into your PDF.'
+                        : 'Review your cropped photo and click Confirm Photo to continue.'}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => galleryInputRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      <span>Change Photo</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (originalPhotoUrl) {
+                          setPhotoConfirmed(false);
+                          setCropModalOpen(true);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <Crop className="w-4 h-4" />
+                      <span>Crop Again</span>
+                    </button>
+                    <button
+                      ref={registerFieldRef('photo')}
+                      type="button"
+                      onClick={() => {
+                        setPhotoConfirmed(true);
+                        clearFieldError('photo');
+                      }}
+                      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/30 ${
+                        photoConfirmed
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-blue-600 text-white hover:bg-blue-700'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>{photoConfirmed ? 'Photo Confirmed' : 'Confirm Photo'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            <FieldErrorText message={fieldErrors.photo} />
+          </div>
         </section>
       )}
 
@@ -1183,6 +1466,7 @@ export function StayRegistrationView() {
                   onClick={() => {
                     setRoomPreference(pref);
                     setSelectedRoomId('');
+                    clearFieldError('roomSelection');
                   }}
                   className={`py-3 px-4 rounded-xl text-sm font-semibold border transition-colors ${
                     roomPreference === pref
@@ -1196,12 +1480,18 @@ export function StayRegistrationView() {
             </div>
           </div>
 
-          <div className="space-y-2">
+          <div className={`space-y-2 ${shakingFields.roomSelection ? 'animate-field-shake' : ''}`}>
             <label className={labelClass}>
-              Room Number / Room Selection ({roomPreference} Sharing)
+              Select Room ({roomPreference} Sharing){matchingAvailableRooms.length > 0 ? ' *' : ''}
             </label>
             {matchingAvailableRooms.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div
+                tabIndex={-1}
+                ref={registerFieldRef('roomSelection')}
+                className={`grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-2xl transition-colors ${
+                  fieldErrors.roomSelection ? 'p-2.5 border border-red-500 bg-red-50/30' : ''
+                }`}
+              >
                 {matchingAvailableRooms.map((rm) => {
                   const isSelected = selectedRoom?.id === rm.id;
                   const priceForPref =
@@ -1214,10 +1504,13 @@ export function StayRegistrationView() {
                     <button
                       key={rm.id}
                       type="button"
-                      onClick={() => setSelectedRoomId(rm.id)}
+                      onClick={() => {
+                        setSelectedRoomId(rm.id);
+                        clearFieldError('roomSelection');
+                      }}
                       className={`text-left p-4 rounded-2xl border transition-colors ${
                         isSelected
-                          ? 'border-blue-500 bg-blue-50/40'
+                          ? 'border-blue-600 bg-blue-50/50 ring-2 ring-blue-500/15'
                           : 'border-slate-200 bg-white hover:bg-slate-50'
                       }`}
                     >
@@ -1225,7 +1518,9 @@ export function StayRegistrationView() {
                         <p className="text-sm font-bold text-slate-900">
                           {rm.name} (#{rm.roomNumber})
                         </p>
-                        <span className="text-xs font-semibold text-emerald-700">Available</span>
+                        <span className="text-xs font-semibold text-emerald-700">
+                          {isSelected ? 'Selected ✓' : 'Available'}
+                        </span>
                       </div>
                       <p className="text-xs text-slate-500 mt-1">
                         {rm.roomType} · Capacity {rm.maxGuests}
@@ -1244,33 +1539,53 @@ export function StayRegistrationView() {
               <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 text-sm text-slate-600">
                 <span className="font-semibold text-slate-900">Room Assigned by Administration</span>{' '}
                 — No specific {roomPreference} room number is listed open right now. You may still
-                register and the hostel admin will assign your room upon approval.
+                register and {hostelBrandName} management will assign your room upon approval.
               </div>
             )}
+            <FieldErrorText message={fieldErrors.roomSelection} />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className={labelClass}>Joining Date *</label>
+              <label htmlFor="reg-joining-date" className={labelClass}>
+                Joining Date *
+              </label>
               <input
+                id="reg-joining-date"
+                ref={registerFieldRef('joiningDate')}
                 type="date"
                 value={joiningDate}
-                onChange={(e) => setJoiningDate(e.target.value)}
-                className={inputClass}
+                onChange={(e) => {
+                  setJoiningDate(e.target.value);
+                  if (e.target.value.trim()) clearFieldError('joiningDate');
+                }}
+                aria-invalid={Boolean(fieldErrors.joiningDate)}
+                className={fieldInputClass('joiningDate')}
               />
+              <FieldErrorText message={fieldErrors.joiningDate} />
             </div>
+
             <div>
-              <label className={labelClass}>Expected Stay Duration *</label>
+              <label htmlFor="reg-stay-duration" className={labelClass}>
+                Expected Stay Duration *
+              </label>
               <select
+                id="reg-stay-duration"
+                ref={registerFieldRef('stayDuration')}
                 value={stayDuration}
-                onChange={(e) => setStayDuration(e.target.value)}
-                className={inputClass}
+                onChange={(e) => {
+                  setStayDuration(e.target.value);
+                  if (e.target.value.trim()) clearFieldError('stayDuration');
+                }}
+                aria-invalid={Boolean(fieldErrors.stayDuration)}
+                className={fieldInputClass('stayDuration')}
               >
                 <option value="Monthly Stay">Monthly Stay</option>
                 <option value="3 Months">3 Months</option>
                 <option value="6 Months">6 Months</option>
                 <option value="1 Year (Academic Session)">1 Year (Academic Session)</option>
               </select>
+              <FieldErrorText message={fieldErrors.stayDuration} />
             </div>
           </div>
 
@@ -1278,7 +1593,7 @@ export function StayRegistrationView() {
           <div className="bg-slate-50/90 border border-slate-200/80 rounded-2xl p-5 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-900">Monthly Rent Summary</h3>
-              <span className="text-[11px] text-slate-500">Auto-synced from Hostel Admin</span>
+              <span className="text-[11px] text-slate-500">Auto-synced from {hostelBrandName}</span>
             </div>
 
             <div className="divide-y divide-slate-200/70 text-sm">
@@ -1342,26 +1657,37 @@ export function StayRegistrationView() {
             <p className="text-base text-slate-800 leading-8 font-normal">{HINDI_AGREEMENT_TEXT}</p>
           </div>
 
-          {/* Mandatory Consent Checkbox (English Rules Consent + Hindi Agreement Confirmation) */}
-          <label className="flex items-start gap-3.5 p-4 rounded-2xl border border-slate-200 bg-white cursor-pointer hover:border-blue-300 transition-colors">
-            <input
-              type="checkbox"
-              checked={agreementAccepted}
-              onChange={(e) => {
-                setAgreementAccepted(e.target.checked);
-                if (e.target.checked) setStepError(null);
-              }}
-              className="mt-1 w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 shrink-0"
-            />
-            <span className="space-y-1">
-              <span className="block text-sm sm:text-base font-semibold text-slate-900 leading-snug">
-                {RULES_CONSENT_CHECKBOX_EN}
+          {/* Mandatory Consent Checkbox */}
+          <div className={shakingFields.agreement ? 'animate-field-shake' : ''}>
+            <label
+              className={`flex items-start gap-3.5 p-4 rounded-2xl border bg-white cursor-pointer transition-colors ${
+                fieldErrors.agreement
+                  ? 'border-red-500 bg-red-50/30 ring-1 ring-red-500/20'
+                  : 'border-slate-200 hover:border-blue-300'
+              }`}
+            >
+              <input
+                ref={registerFieldRef('agreement')}
+                type="checkbox"
+                checked={agreementAccepted}
+                onChange={(e) => {
+                  setAgreementAccepted(e.target.checked);
+                  if (e.target.checked) clearFieldError('agreement');
+                }}
+                aria-invalid={Boolean(fieldErrors.agreement)}
+                className="mt-1 w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 shrink-0"
+              />
+              <span className="space-y-1">
+                <span className="block text-sm sm:text-base font-semibold text-slate-900 leading-snug">
+                  {RULES_CONSENT_CHECKBOX_EN}
+                </span>
+                <span className="block text-xs sm:text-sm text-slate-600 leading-relaxed">
+                  {HINDI_AGREEMENT_CHECKBOX}
+                </span>
               </span>
-              <span className="block text-xs sm:text-sm text-slate-600 leading-relaxed">
-                {HINDI_AGREEMENT_CHECKBOX}
-              </span>
-            </span>
-          </label>
+            </label>
+            <FieldErrorText message={fieldErrors.agreement} />
+          </div>
 
           {/* Physical Signature After Printing Info */}
           <div className="bg-blue-50/60 border border-blue-200/80 rounded-2xl p-4 flex items-start gap-3">
@@ -1375,7 +1701,7 @@ export function StayRegistrationView() {
               <p className="leading-relaxed">
                 After you confirm and submit, your official registration PDF will be generated
                 automatically with a clean blank signature section. Simply print the PDF, sign it
-                with a pen, and submit the signed copy to hostel management.
+                with a pen, and submit the signed copy to {hostelBrandName} management.
               </p>
             </div>
           </div>
@@ -1403,7 +1729,7 @@ export function StayRegistrationView() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {/* Student Details */}
+            {/* Student Details (NO DOB, NO Email) */}
             <div className="border border-slate-200/80 rounded-2xl p-5 space-y-2">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-slate-900">Student Details</h3>
@@ -1420,16 +1746,14 @@ export function StayRegistrationView() {
                   <strong className="text-slate-900">Name:</strong> {fullName}
                 </p>
                 <p>
-                  <strong className="text-slate-900">DOB / Gender:</strong> {dateOfBirth} · {gender}
+                  <strong className="text-slate-900">Gender:</strong> {gender}
                 </p>
                 <p>
                   <strong className="text-slate-900">Mobile:</strong> {mobile}
                 </p>
-                {email && (
-                  <p>
-                    <strong className="text-slate-900">Email:</strong> {email}
-                  </p>
-                )}
+                <p>
+                  <strong className="text-slate-900">District:</strong> {addressDistrict}
+                </p>
                 <p>
                   <strong className="text-slate-900">Address:</strong> {addressHouse}
                   {addressPostOffice ? `, PO: ${addressPostOffice}` : ''}, {addressDistrict},{' '}
@@ -1566,17 +1890,10 @@ export function StayRegistrationView() {
               </p>
             </div>
           </div>
-
-          {!user && (
-            <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-4 text-sm text-blue-900">
-              Clicking <strong>Confirm &amp; Submit</strong> will ask you to sign in with Google so
-              your registration and documents are securely linked to your private account.
-            </div>
-          )}
         </section>
       )}
 
-      {/* ==================== STEP 8: COMPLETION & PDF ACTIONS (WITH REGENERATE RECOVERY) ==================== */}
+      {/* ==================== STEP 8: COMPLETION & PDF ACTIONS ==================== */}
       {step === 8 && completedReg && (
         <section className="bg-white border border-emerald-200/90 rounded-3xl p-6 sm:p-10 text-center space-y-6 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
           <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
@@ -1584,13 +1901,12 @@ export function StayRegistrationView() {
           </div>
 
           <div className="space-y-2 max-w-xl mx-auto">
+            <p className="text-xs font-semibold text-blue-700">🏠 {hostelBrandName}</p>
             <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">
-              Registration Completed Successfully 🎉
+              Registration Successful 🎉
             </h2>
             <p className="text-sm sm:text-base text-slate-600">
-              {pdfResult
-                ? 'Your hostel registration document is ready.'
-                : 'Your registration details have been saved securely.'}
+              Your hostel registration has been submitted successfully.
             </p>
           </div>
 
@@ -1680,20 +1996,30 @@ export function StayRegistrationView() {
 
               {/* Required Print & Pen Signature Instruction */}
               <div className="max-w-xl mx-auto bg-blue-50/70 border border-blue-200/80 rounded-2xl p-4 text-sm font-medium text-blue-950">
-                Please print the document and sign it with a pen before submitting it to the hostel
-                administration.
+                Please print the document and sign it with a pen before submitting it to{' '}
+                {hostelBrandName} administration.
               </div>
             </>
           )}
 
-          <div className="pt-4 border-t border-slate-100 flex justify-center">
+          <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-center gap-4">
             <button
               type="button"
-              onClick={() => setActiveTab('profile')}
-              className="text-sm font-semibold text-blue-600 hover:text-blue-800"
+              onClick={() => setActiveTab('home')}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
-              View My Registrations in Profile →
+              <Home className="w-4 h-4" />
+              <span>Back to Home</span>
             </button>
+            {user && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('profile')}
+                className="text-sm font-semibold text-blue-600 hover:text-blue-800"
+              >
+                View My Registrations in Profile →
+              </button>
+            )}
           </div>
         </section>
       )}
@@ -1728,7 +2054,7 @@ export function StayRegistrationView() {
               onClick={goNext}
               className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700"
             >
-              <span>Continue</span>
+              <span>Next</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           ) : (
@@ -1767,6 +2093,7 @@ export function StayRegistrationView() {
           onConfirm={(croppedUrl) => {
             setCroppedPhotoUrl(croppedUrl);
             setPhotoConfirmed(false);
+            clearFieldError('photo');
             setCropModalOpen(false);
           }}
         />
@@ -1780,6 +2107,7 @@ export function StayRegistrationView() {
             setCameraModalOpen(false);
             setOriginalPhotoUrl(capturedUrl);
             setPhotoConfirmed(false);
+            clearFieldError('photo');
             setCropModalOpen(true);
           }}
         />
@@ -1825,7 +2153,7 @@ export function StayRegistrationView() {
             </div>
             <iframe
               src={pdfResult.blobUrl}
-              title="Student Hostel Registration PDF"
+              title={`${hostelBrandName} Registration PDF`}
               className="flex-1 w-full bg-slate-100"
             />
           </div>

@@ -215,7 +215,7 @@
     },
     "StayRegistration": {
       "title": "StayRegistration",
-      "description": "Private monthly student hostel stay registration containing student info, parent details (without parent address), room selection, Hindi agreement acceptance, IST audit timestamps, signed copy metadata, and admin status.",
+      "description": "Private monthly stay registration for Amit Bhaiya Lawaj containing student info (without DOB or email), parent details (without parent address), room selection, Hindi agreement acceptance, IST audit timestamps, signed copy metadata, and admin status.",
       "type": "object",
       "properties": {
         "registrationId": { "type": "string", "minLength": 4, "maxLength": 40 },
@@ -236,10 +236,8 @@
           ]
         },
         "fullName": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "dateOfBirth": { "type": "string", "minLength": 4, "maxLength": 30 },
         "gender": { "type": "string", "minLength": 1, "maxLength": 30 },
         "mobile": { "type": "string", "minLength": 8, "maxLength": 25 },
-        "email": { "type": "string", "maxLength": 120 },
         "addressHouse": { "type": "string", "minLength": 1, "maxLength": 200 },
         "addressPostOffice": { "type": "string", "maxLength": 120 },
         "addressDistrict": { "type": "string", "minLength": 1, "maxLength": 100 },
@@ -283,7 +281,7 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [
-        "registrationId", "userId", "status", "fullName", "dateOfBirth", "gender", "mobile",
+        "registrationId", "userId", "status", "fullName", "gender", "mobile",
         "addressHouse", "addressDistrict", "addressState", "addressPin",
         "fatherName", "motherName", "parentMobile",
         "idProofType", "roomPreference", "joiningDate", "stayDuration",

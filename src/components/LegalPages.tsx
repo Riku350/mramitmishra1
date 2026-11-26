@@ -22,22 +22,20 @@ import { useApp } from '../AppContext';
 export function PrivacyPolicyView() {
   const { generalSettings, contactSettings, locationSettings, ownerProfile, setActiveTab } = useApp();
 
-  const hostelName = generalSettings.lodgeName || 'Student Hostel';
+  const hostelName = generalSettings.lodgeName || 'Amit Bhaiya Lawaj';
   const phone = contactSettings.phone || ownerProfile.phone;
   const whatsappRaw = contactSettings.whatsapp || ownerProfile.whatsapp || phone;
   const whatsapp = whatsappRaw.replace(/[^0-9]/g, '');
   const email = contactSettings.email || ownerProfile.email;
   const retentionText =
     generalSettings.dataRetentionPolicy ||
-    'Student registration records, identity verification documents, and signed hostel agreements are retained in accordance with hostel administration operational, legal, and documentation requirements, and may be reviewed or removed once no longer needed for hostel residency records.';
+    'Student registration records, identity verification documents, and signed hostel agreements are retained in accordance with Amit Bhaiya Lawaj administration operational, legal, and documentation requirements, and may be reviewed or removed once no longer needed for residency records.';
 
   const collectedItems = [
     'Student Full Name',
-    'Date of Birth',
     'Gender',
     'Mobile Number',
-    'Email Address',
-    'Student Permanent Address',
+    'Student Permanent Address & District',
     "Father's Name and Mother's Name",
     'Parent / Guardian Mobile Number (and optional alternate emergency contact)',
     'Identity Proof (Aadhaar Card or Other Valid ID)',
@@ -98,14 +96,14 @@ export function PrivacyPolicyView() {
         </p>
         <ul className="space-y-2 text-sm text-slate-600 list-disc pl-5">
           <li>Identity proof documents are never publicly displayed on the website.</li>
-          <li>Other website visitors or normal student accounts cannot view your identity proof.</li>
+          <li>Other website visitors or normal student accounts cannot view or download your identity proof.</li>
           <li>
-            Only authorized hostel administration (and the submitting student inside their own
-            private registration session) can access the uploaded identity document.
+            Only authorized Amit Bhaiya Lawaj administration can access uploaded identity documents
+            stored in the private database.
           </li>
           <li>
-            Identity proof files are stored securely using Firebase Storage and private database
-            records protected by strict server-side Security Rules that block unauthorized access.
+            Identity proof files are stored securely using private Firebase records protected by
+            strict server-side Security Rules that block all unauthorized read or modify access.
           </li>
         </ul>
       </section>
@@ -265,7 +263,7 @@ export function PrivacyPolicyView() {
 
 export function TermsConditionsView() {
   const { generalSettings, setActiveTab } = useApp();
-  const hostelName = generalSettings.lodgeName || 'Student Hostel';
+  const hostelName = generalSettings.lodgeName || 'Amit Bhaiya Lawaj';
 
   const terms = [
     {

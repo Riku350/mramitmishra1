@@ -91,11 +91,11 @@ export async function optimizeImageFile(
       // Iteratively reduce quality / dimensions if payload exceeds safe target budget
       let currW = w;
       let currH = h;
-      while (resultUrl.length > maxChars && quality > 0.42) {
-        quality = Number((quality - 0.1).toFixed(2));
+      while (resultUrl.length > maxChars && quality > 0.34) {
+        quality = Number((quality - 0.08).toFixed(2));
         resultUrl = drawAndEncode(currW, currH, quality, targetMime);
       }
-      while (resultUrl.length > maxChars && currW > 480) {
+      while (resultUrl.length > maxChars && currW > 260) {
         currW = Math.round(currW * 0.78);
         currH = Math.round(currH * 0.78);
         resultUrl = drawAndEncode(currW, currH, quality, targetMime);

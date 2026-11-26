@@ -20,25 +20,13 @@ import {
   ShieldCheck,
   Calendar,
   X,
-  ZapOff,
   CheckCircle2,
   Clock,
   ArrowRight,
-  Droplet,
 } from 'lucide-react';
 import { useApp, LodgeRule } from '../AppContext';
 import { BATHROOM_CLEANING_SCHEDULE } from '../data/hostelRules';
 import { AnimatedWaterDrop } from './StudentScenes';
-
-const RULE_CATEGORIES = [
-  { id: 'all', label: 'All Rules' },
-  { id: 'rent', label: 'Rent & Notice' },
-  { id: 'room', label: 'Room & Cleaning' },
-  { id: 'utilities', label: 'Utilities' },
-  { id: 'discipline', label: 'Discipline & Safety' },
-] as const;
-
-type CategoryFilter = (typeof RULE_CATEGORIES)[number]['id'];
 
 export function RuleIcon({ icon, variant }: { icon?: string; variant?: string }) {
   if (icon === 'droplet') {
@@ -188,9 +176,18 @@ export function CleaningScheduleModal({
   );
 }
 
+const IMPORTANT_HIGHLIGHTS = [
+  { emoji: '🏠', label: '1 Month Advance Rent' },
+  { emoji: '🚫', label: 'No Guests' },
+  { emoji: '🕘', label: 'Gate Closes at 9 PM' },
+  { emoji: '📅', label: '1 Month Leaving Notice' },
+  { emoji: '💧', label: 'Save Water' },
+  { emoji: '💡', label: 'Save Electricity' },
+  { emoji: '🔇', label: 'Maintain Silence' },
+];
+
 export function RulesView() {
   const { rules, openRegistrationForRoom } = useApp();
-  const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all');
   const [scheduleOpen, setScheduleOpen] = useState(false);
 
   const activeRules = useMemo(() => {
@@ -199,35 +196,21 @@ export function RulesView() {
       .sort((a, b) => (a.sortOrder ?? 99) - (b.sortOrder ?? 99));
   }, [rules]);
 
-  const filteredRules = useMemo(() => {
-    if (selectedCategory === 'all') return activeRules;
-    return activeRules.filter((r) => (r.category || 'discipline') === selectedCategory);
-  }, [activeRules, selectedCategory]);
-
   const isBathroomRule = (rule: LodgeRule) =>
     rule.icon === 'bath' ||
     rule.id.toLowerCase().includes('bathroom') ||
     rule.title.toLowerCase().includes('bathroom');
 
-  const topHighlights = [
-    { title: '9:00 PM — Gate Closing', sub: 'Main gate closes daily', icon: DoorClosed, tone: 'bg-blue-50 text-blue-600' },
-    { title: '1–5 — Regular Rent Date', sub: 'Up to 10th in emergency', icon: CalendarCheck, tone: 'bg-emerald-50 text-emerald-600' },
-    { title: '1 Month — Leaving Notice', sub: 'Inform 1 month in advance', icon: CalendarClock, tone: 'bg-blue-50 text-blue-600' },
-    { title: 'Guests — Not Allowed', sub: 'Emergency: ₹100 / person / day', icon: UserX, tone: 'bg-amber-50 text-amber-700' },
-    { title: 'Save Electricity & Water', sub: 'Switch OFF lights & fans', icon: Droplet, tone: 'bg-sky-50 text-sky-600' },
-    { title: 'Maintain Silence', sub: 'Peaceful study environment', icon: VolumeX, tone: 'bg-teal-50 text-teal-600' },
-  ];
-
   return (
-    <div className="space-y-8">
+    <div className="space-y-7 max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-        <div className="space-y-1.5">
+        <div className="space-y-1">
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
             Hostel Rules
           </h1>
-          <p className="text-sm sm:text-base text-slate-600 max-w-2xl leading-relaxed">
-            Please read all hostel rules carefully before applying for a stay.
+          <p className="text-sm sm:text-base text-slate-600">
+            Simple &amp; clear rules for a peaceful stay at <strong>Amit Bhaiya Lawaj</strong>.
           </p>
         </div>
         <button
@@ -240,157 +223,89 @@ export function RulesView() {
         </button>
       </div>
 
-      {/* Top 6 Important Rules Highlights */}
-      <section aria-label="Important rules summary" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {topHighlights.map((item) => {
-          const Icon = item.icon;
-          return (
+      {/* Top Important Rules Highlight */}
+      <section
+        aria-label="Important hostel rules"
+        className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-[0_1px_3px_rgba(15,23,42,0.03)] space-y-3"
+      >
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+          Important Rules at a Glance
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          {IMPORTANT_HIGHLIGHTS.map((item) => (
             <div
-              key={item.title}
-              className="bg-white border border-slate-200/80 rounded-2xl p-4 flex items-center gap-3.5 shadow-[0_1px_3px_rgba(15,23,42,0.04)]"
+              key={item.label}
+              className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3.5 py-2.5"
             >
-              <div className={`w-10 h-10 rounded-xl ${item.tone} flex items-center justify-center shrink-0`}>
-                <Icon className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-slate-900 tabular-nums">{item.title}</p>
-                <p className="text-xs text-slate-500 mt-0.5">{item.sub}</p>
-              </div>
+              <span className="text-lg leading-none shrink-0" aria-hidden="true">
+                {item.emoji}
+              </span>
+              <span className="text-sm font-semibold text-slate-900">{item.label}</span>
             </div>
-          );
-        })}
+          ))}
+        </div>
       </section>
 
-      {/* Category Filter Tabs */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 pb-3">
-        {RULE_CATEGORIES.map((cat) => {
-          const active = selectedCategory === cat.id;
+      {/* Simple Numbered One-Line Rule Cards (01 to 17) */}
+      <section aria-label="All hostel rules" className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+        {activeRules.map((rule, index) => {
+          const ruleNum = String(rule.sortOrder || index + 1).padStart(2, '0');
+          const borderStyle =
+            rule.variant === 'warning'
+              ? 'border-amber-200/80 bg-white'
+              : rule.variant === 'important'
+                ? 'border-blue-200/80 bg-white'
+                : 'border-slate-200/80 bg-white';
+
+          const numColor =
+            rule.variant === 'warning'
+              ? 'text-amber-700'
+              : rule.variant === 'important'
+                ? 'text-blue-700'
+                : 'text-slate-500';
+
           return (
-            <button
-              key={cat.id}
-              type="button"
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`px-3.5 py-2 rounded-xl text-sm font-medium transition-colors ${
-                active
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50 hover:text-slate-900'
-              }`}
+            <article
+              key={rule.id}
+              className={`${borderStyle} border rounded-2xl p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] flex flex-col justify-between gap-2.5`}
             >
-              {cat.label}
-            </button>
+              <div className="space-y-2">
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-snug">
+                  <span className={`${numColor} tabular-nums`}>{ruleNum}</span>
+                  <span className="text-slate-300 mx-2">—</span>
+                  <span>{rule.title}</span>
+                </h2>
+
+                {rule.description && (
+                  <p className="text-[15px] sm:text-base text-slate-700 leading-relaxed">
+                    {rule.description}
+                  </p>
+                )}
+              </div>
+
+              {isBathroomRule(rule) && (
+                <button
+                  type="button"
+                  onClick={() => setScheduleOpen(true)}
+                  className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-blue-600 hover:text-blue-800 pt-1 self-start"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>View Mon–Sat Cleaning Schedule</span>
+                </button>
+              )}
+            </article>
           );
         })}
-      </div>
-
-      {/* All 17 Rules Grid */}
-      {filteredRules.length === 0 ? (
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-8 text-center">
-          <p className="text-sm text-slate-600">No rules listed in this category.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filteredRules.map((rule, index) => {
-            const cardStyle =
-              rule.variant === 'warning'
-                ? 'bg-amber-50/35 border-amber-200/80'
-                : rule.variant === 'important'
-                  ? 'bg-white border-blue-200/90'
-                  : 'bg-white border-slate-200/80';
-
-            const labelStyle =
-              rule.variant === 'warning'
-                ? 'text-amber-800'
-                : rule.variant === 'important'
-                  ? 'text-blue-700'
-                  : 'text-emerald-700';
-
-            return (
-              <article
-                key={rule.id}
-                className={`${cardStyle} border rounded-2xl p-5 flex flex-col justify-between gap-4 shadow-[0_1px_3px_rgba(15,23,42,0.03)] transition-shadow hover:shadow-sm`}
-              >
-                <div className="space-y-3.5">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <RuleIcon icon={rule.icon} variant={rule.variant} />
-                    <div className="min-w-0">
-                      <span className="text-[11px] font-semibold text-slate-400 tracking-wide tabular-nums block">
-                        RULE {String(rule.sortOrder || index + 1).padStart(2, '0')}
-                      </span>
-                      <h2 className="text-base font-bold text-slate-900 leading-snug">
-                        {rule.title}
-                      </h2>
-                    </div>
-                  </div>
-
-                  {rule.description && (
-                    <p className="text-sm text-slate-700 leading-relaxed">{rule.description}</p>
-                  )}
-                </div>
-
-                <div className="space-y-2.5 pt-3 border-t border-slate-100">
-                  {rule.englishLabel && (
-                    <p className={`text-xs font-semibold ${labelStyle}`}>{rule.englishLabel}</p>
-                  )}
-
-                  {rule.highlights && rule.highlights.length > 0 && (
-                    <p className="text-xs text-slate-500 leading-relaxed">
-                      {rule.highlights.join('  ·  ')}
-                    </p>
-                  )}
-
-                  {isBathroomRule(rule) && (
-                    <button
-                      type="button"
-                      onClick={() => setScheduleOpen(true)}
-                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 pt-1"
-                    >
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>View Room-wise Cleaning Schedule (Mon–Sat)</span>
-                    </button>
-                  )}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Restricted Devices Callout */}
-      <section className="bg-white border border-amber-200/80 rounded-2xl p-6 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
-          <div className="flex items-start gap-4">
-            <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center shrink-0">
-              <ZapOff className="w-5 h-5" />
-            </div>
-            <div className="space-y-1">
-              <h2 className="text-lg font-bold text-slate-900">Restricted Electrical Devices</h2>
-              <p className="text-sm text-slate-700 leading-relaxed max-w-2xl">
-                Unnecessary electrical devices other than a mobile charger are not allowed unless
-                permitted by management. Violators will be asked to vacate the room.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3 shrink-0">
-            {['Iron', 'Water Heater', 'Heater'].map((device) => (
-              <div
-                key={device}
-                className="bg-amber-50/50 border border-amber-200/70 rounded-xl px-3.5 py-2.5 text-center"
-              >
-                <p className="text-xs font-semibold text-amber-900">{device}</p>
-                <p className="text-[11px] text-amber-700 mt-0.5">Not Allowed</p>
-              </div>
-            ))}
-          </div>
-        </div>
       </section>
 
       {/* Ready to Stay? CTA Section */}
-      <section className="bg-white border border-blue-200/90 rounded-3xl p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-6 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
-        <div className="space-y-1.5">
-          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Ready to Stay?</h2>
-          <p className="text-sm sm:text-base text-slate-600 max-w-xl">
-            Please make sure you have read and understood all hostel rules before registration.
+      <section className="bg-white border border-blue-200/90 rounded-3xl p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-5 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
+        <div className="space-y-1">
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+            Ready to Stay at Amit Bhaiya Lawaj?
+          </h2>
+          <p className="text-sm sm:text-base text-slate-600">
+            Read all 17 rules above and continue to online stay registration.
           </p>
         </div>
         <button

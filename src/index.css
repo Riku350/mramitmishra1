@@ -38,6 +38,14 @@
   50% { opacity: 0.9; transform: scale(1.06); }
 }
 
+@keyframes field-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-5px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(3px); }
+}
+
 .animate-gentle-float {
   animation: gentle-float 4s ease-in-out infinite;
 }
@@ -54,11 +62,16 @@
   animation: lamp-glow 3.5s ease-in-out infinite;
 }
 
+.animate-field-shake {
+  animation: field-shake 380ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-gentle-float,
   .animate-water-drop,
   .animate-walk-sway,
-  .animate-lamp-glow {
+  .animate-lamp-glow,
+  .animate-field-shake {
     animation: none !important;
   }
 }

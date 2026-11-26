@@ -592,13 +592,11 @@ export function AdminPanel() {
     registrationId: reg.registrationId,
     registrationDateIST: reg.registrationDateIST,
     registrationTimeIST: reg.registrationTimeIST,
-    hostelName: generalSettings.lodgeName || 'Student Hostel',
+    hostelName: generalSettings.lodgeName || 'Amit Bhaiya Lawaj',
     hostelSubName: generalSettings.lodgeNameHindi,
     fullName: reg.fullName,
-    dateOfBirth: reg.dateOfBirth,
     gender: reg.gender,
     mobile: reg.mobile,
-    email: reg.email,
     addressHouse: reg.addressHouse,
     addressPostOffice: reg.addressPostOffice,
     addressDistrict: reg.addressDistrict,
@@ -1089,9 +1087,9 @@ export function AdminPanel() {
     try {
       await Promise.all([
         updateGeneralSettings({
-          lodgeName: hostelForm.lodgeName.trim() || 'Student Hostel',
+          lodgeName: hostelForm.lodgeName.trim() || 'Amit Bhaiya Lawaj',
           lodgeNameHindi: hostelForm.lodgeNameHindi.trim(),
-          introGreeting: hostelForm.introGreeting.trim() || 'Student Hostel',
+          introGreeting: hostelForm.introGreeting.trim() || 'Amit Bhaiya Lawaj',
           introSubtitle: hostelForm.introSubtitle.trim(),
           welcomeBannerText: hostelForm.welcomeBannerText.trim(),
           homeTagline: hostelForm.homeTagline.trim(),
@@ -1266,7 +1264,7 @@ export function AdminPanel() {
           </button>
           <div>
             <h1 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight">
-              Student Hostel Admin Panel
+              🏠 Amit Bhaiya Lawaj — Admin Panel
             </h1>
             <p className="text-xs sm:text-sm text-slate-500">
               Welcome, Admin 👋{' '}
@@ -2875,10 +2873,9 @@ export function AdminPanel() {
                     Student Details
                   </h4>
                   <InfoRow label="Full Name" value={selectedReg.fullName} />
-                  <InfoRow label="Date of Birth" value={selectedReg.dateOfBirth} />
                   <InfoRow label="Gender" value={selectedReg.gender} />
                   <InfoRow label="Mobile" value={selectedReg.mobile} />
-                  <InfoRow label="Email" value={selectedReg.email || '—'} />
+                  <InfoRow label="District" value={selectedReg.addressDistrict || '—'} />
                   <InfoRow
                     label="Address"
                     value={[

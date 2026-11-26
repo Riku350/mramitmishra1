@@ -38,6 +38,18 @@ service cloud.firestore {
         request.auth.token.email.lower() == 'godrikuop@gmail.com';
     }
 
+    function isValidGuestUserId(uid) {
+      return uid is string &&
+        uid.size() >= 14 &&
+        uid.size() <= 72 &&
+        uid.matches('^guest_[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidSubmitterUserId(uid) {
+      return (isSignedIn() && uid == request.auth.uid) ||
+        (!isSignedIn() && isValidGuestUserId(uid));
+    }
+
     function isOptionalNumberInRange(data, key, minVal, maxVal) {
       return !(key in data) || data[key] == null || (
         (data[key] is int || data[key] is float) &&
@@ -287,7 +299,7 @@ service cloud.firestore {
 
     function isValidStayRegistration(data) {
       return data.keys().hasAll([
-          'registrationId', 'userId', 'status', 'fullName', 'dateOfBirth', 'gender', 'mobile',
+          'registrationId', 'userId', 'status', 'fullName', 'gender', 'mobile',
           'addressHouse', 'addressDistrict', 'addressState', 'addressPin',
           'fatherName', 'motherName', 'parentMobile',
           'idProofType', 'roomPreference', 'joiningDate', 'stayDuration',
@@ -317,7 +329,7 @@ service cloud.firestore {
           'pending', 'approved', 'rejected', 'room_assigned', 'active', 'completed'
         ] &&
         data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120 &&
-        data.dateOfBirth is string && data.dateOfBirth.size() >= 4 && data.dateOfBirth.size() <= 30 &&
+        isOptionalString(data, 'dateOfBirth', 30) &&
         data.gender is string && data.gender.size() >= 1 && data.gender.size() <= 30 &&
         data.mobile is string && data.mobile.size() >= 8 && data.mobile.size() <= 25 &&
         isOptionalString(data, 'email', 120) &&
@@ -615,22 +627,30 @@ service cloud.firestore {
       allow delete: if isSignedIn() && isValidId(bookingId) && isAdmin();
     }
 
+    // Student Stay Registrations:
+    // - Students (with or without login) can CREATE a new registration with status == 'submitted'.
+    // - Students CANNOT read other students' registrations, CANNOT modify/delete existing registrations,
+    //   and CANNOT read any private ID proof documents.
+    // - Verified Admin (GODRIKUOP@GMAIL.COM) has full access.
     match /registrations/{registrationId} {
       allow get: if isSignedIn() && isValidId(registrationId) && (
-        existing().userId == request.auth.uid || isAdmin()
+        isAdmin() ||
+        (existing().userId == request.auth.uid && !existing().userId.matches('^guest_.*'))
       );
       allow list: if isSignedIn() && (
-        resource.data.userId == request.auth.uid || isAdmin()
+        isAdmin() ||
+        resource.data.userId == request.auth.uid
       );
-      allow create: if isVerifiedUser() &&
-        isValidId(registrationId) &&
+      allow create: if isValidId(registrationId) &&
         isValidStayRegistration(incoming()) &&
+        !('dateOfBirth' in incoming()) &&
+        !('email' in incoming()) &&
         !('parentAddress' in incoming()) &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
-        incoming().userId == request.auth.uid &&
-        incoming().status in ['submitted', 'pending'];
-      allow update: if isVerifiedUser() &&
+        incoming().status == 'submitted' &&
+        isValidSubmitterUserId(incoming().userId);
+      allow update: if isSignedIn() &&
         isValidId(registrationId) &&
         isValidStayRegistration(incoming()) &&
         incoming().createdAt == existing().createdAt &&
@@ -639,50 +659,42 @@ service cloud.firestore {
         incoming().registrationDateIST == existing().registrationDateIST &&
         incoming().registrationTimeIST == existing().registrationTimeIST &&
         incoming().updatedAt == request.time &&
-        (
-          (
-            isAdmin() &&
-            incoming().diff(existing()).affectedKeys().hasOnly([
-              'status', 'assignedRoomNumber', 'adminNotes',
-              'photoStoragePath', 'signedDocFileName', 'signedDocMimeType', 'signedDocStoragePath',
-              'pdfGeneratedAtIST', 'statusUpdatedAtIST', 'signedDocUploadedAtIST', 'updatedAtIST',
-              'updatedAt'
-            ])
-          ) ||
-          (
-            existing().userId == request.auth.uid &&
-            existing().status in ['submitted', 'pending', 'pdf_generated'] &&
-            incoming().status == 'pdf_generated' &&
-            incoming().diff(existing()).affectedKeys().hasOnly([
-              'status', 'pdfGeneratedAtIST', 'updatedAtIST', 'updatedAt'
-            ])
-          )
-        );
+        isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'status', 'assignedRoomNumber', 'adminNotes',
+          'photoStoragePath', 'signedDocFileName', 'signedDocMimeType', 'signedDocStoragePath',
+          'pdfGeneratedAtIST', 'statusUpdatedAtIST', 'signedDocUploadedAtIST', 'updatedAtIST',
+          'updatedAt'
+        ]);
       allow delete: if isSignedIn() && isValidId(registrationId) && isAdmin();
 
+      // Private student photo & ID proof documents:
+      // - Created ONLY atomically during brand-new parent registration creation (!exists + existsAfter + getAfter)
+      //   OR by verified Admin on an existing registration.
+      // - Readable, updatable, and deletable ONLY by verified Admin (GODRIKUOP@GMAIL.COM).
       match /documents/{docId} {
-        allow get: if isSignedIn() && isValidId(registrationId) && isValidId(docId) && (
-          existing().userId == request.auth.uid || isAdmin()
-        );
-        allow list: if isSignedIn() && isValidId(registrationId) && (
-          resource.data.userId == request.auth.uid || isAdmin()
-        );
-        allow create: if isVerifiedUser() &&
-          isValidId(registrationId) &&
+        allow get: if isSignedIn() && isValidId(registrationId) && isValidId(docId) && isAdmin();
+        allow list: if isSignedIn() && isValidId(registrationId) && isAdmin();
+        allow create: if isValidId(registrationId) &&
           isValidId(docId) &&
           isValidRegistrationDocument(incoming()) &&
           incoming().createdAt == request.time &&
           (
             (
-              incoming().userId == request.auth.uid &&
-              get(/databases/$(database)/documents/registrations/$(registrationId)).data.userId == request.auth.uid
+              docId in ['photo', 'id_proof'] &&
+              incoming().docType == docId &&
+              isValidSubmitterUserId(incoming().userId) &&
+              !exists(/databases/$(database)/documents/registrations/$(registrationId)) &&
+              existsAfter(/databases/$(database)/documents/registrations/$(registrationId)) &&
+              getAfter(/databases/$(database)/documents/registrations/$(registrationId)).data.userId == incoming().userId
             ) ||
             (
               isAdmin() &&
+              exists(/databases/$(database)/documents/registrations/$(registrationId)) &&
               incoming().userId == get(/databases/$(database)/documents/registrations/$(registrationId)).data.userId
             )
           );
-        allow update: if isVerifiedUser() &&
+        allow update: if isSignedIn() &&
           isValidId(registrationId) &&
           isValidId(docId) &&
           isValidRegistrationDocument(incoming()) &&

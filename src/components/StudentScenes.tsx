@@ -40,7 +40,7 @@ export function WelcomeScreen({
         >
           <img
             src={HOSTEL_ASSETS.welcomeIllustration}
-            alt="Students walking and reading outside Student Hostel"
+            alt="Students walking and reading outside Amit Bhaiya Lawaj"
             className="w-full aspect-video object-cover"
             referrerPolicy="no-referrer"
           />
@@ -60,7 +60,7 @@ export function WelcomeScreen({
             Monthly Student Accommodation Portal
           </p>
           <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight text-balance">
-            {greeting || 'Student Hostel'}
+            🏠 {greeting || 'Amit Bhaiya Lawaj'}
           </h1>
           <p className="text-base sm:text-lg text-slate-600 leading-relaxed">
             {subtitle || 'Safe Stay. Better Study. Better Future.'}

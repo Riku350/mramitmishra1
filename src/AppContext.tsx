@@ -26,9 +26,52 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { ref as storageRef, uploadString, getBytes, getDownloadURL } from 'firebase/storage';
-import { HOSTEL_ASSETS, STANDARD_17_RULES, RuleVariant } from './data/hostelRules';
+import { HOSTEL_ASSETS, STANDARD_17_RULES, LEGACY_RULE_IDS, RuleVariant } from './data/hostelRules';
 import { getCurrentISTDateTime } from './utils/registrationPdf';
 import { optimizeImageFile } from './utils/imageOptimizer';
+
+export const BRAND_NAME = 'Amit Bhaiya Lawaj';
+
+function normalizeBrandName(value?: string): string {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return BRAND_NAME;
+  const lower = trimmed.toLowerCase();
+  if (lower === 'student hostel' || lower === 'amit bhaiya lawaj') {
+    return BRAND_NAME;
+  }
+  return trimmed;
+}
+
+function sanitizeNumberInRange(
+  val: number | null | undefined,
+  min: number,
+  max: number
+): number | null {
+  if (val == null || typeof val !== 'number' || !Number.isFinite(val)) return null;
+  return Math.min(max, Math.max(min, val));
+}
+
+function inferMimeTypeFromDataUrl(dataUrl: string, fallbackName = ''): string {
+  const match = dataUrl.match(/^data:([^;]+);base64,/i);
+  if (match && match[1]) return match[1].toLowerCase().trim();
+  const lower = fallbackName.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  return 'image/jpeg';
+}
+
+export class RegistrationSubmitError extends Error {
+  public readonly userMessage: string;
+  public readonly code: 'photo' | 'id_proof' | 'network' | 'auth' | 'save';
+
+  constructor(code: 'photo' | 'id_proof' | 'network' | 'auth' | 'save', userMessage: string) {
+    super(userMessage);
+    this.name = 'RegistrationSubmitError';
+    this.code = code;
+    this.userMessage = userMessage;
+  }
+}
 
 /**
  * Single strictly authorized admin email (case-insensitive check).
@@ -209,10 +252,8 @@ export interface StayRegistration {
   userId: string;
   status: RegistrationStatus;
   fullName: string;
-  dateOfBirth: string;
   gender: string;
   mobile: string;
-  email?: string;
   addressHouse: string;
   addressPostOffice?: string;
   addressDistrict: string;
@@ -257,10 +298,8 @@ export interface StayRegistration {
 
 export interface NewStayRegistrationInput {
   fullName: string;
-  dateOfBirth: string;
   gender: string;
   mobile: string;
-  email?: string;
   addressHouse: string;
   addressPostOffice?: string;
   addressDistrict: string;
@@ -450,21 +489,21 @@ interface AppContextType {
 }
 
 const defaultGeneral: GeneralSettings = {
-  lodgeName: 'Student Hostel',
-  lodgeNameHindi: 'AMIT BHAIYA LAWAJ',
-  introGreeting: 'Student Hostel',
+  lodgeName: BRAND_NAME,
+  lodgeNameHindi: 'अमित भैया लॉज',
+  introGreeting: BRAND_NAME,
   introSubtitle: 'Safe Stay. Better Study. Better Future.',
   welcomeBannerText:
     'Comfortable monthly accommodation for students in a peaceful and student-friendly environment.',
   homeTagline: 'Focus on your studies while we take care of a clean, peaceful stay.',
   aboutLodge:
-    'Managed by Amit Mishra, Student Hostel provides clean, disciplined, and study-friendly monthly accommodation for students.',
+    'Managed by Amit Mishra, Amit Bhaiya Lawaj provides clean, disciplined, and study-friendly monthly accommodation for students.',
   monthlyStayInfo:
     'Monthly stay accommodation with 1 month advance rent before moving in. Rent is due between the 1st and 5th of every month.',
   heroImageUrl: HOSTEL_ASSETS.welcomeIllustration,
   logoUrl: '',
   dataRetentionPolicy:
-    'Student registration records, identity verification documents, and signed hostel agreements are retained in accordance with hostel administration operational, legal, and documentation requirements.',
+    'Student registration records, identity verification documents, and signed hostel agreements are retained in accordance with Amit Bhaiya Lawaj administration operational, legal, and documentation requirements.',
   startingPrice: null,
   priceNote:
     'Monthly rent is managed dynamically by hostel administration. 1 month advance rent applies before moving in.',
@@ -690,7 +729,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       doc(db, 'settings', 'general'),
       (docSnap) => {
         if (docSnap.exists()) {
-          setGeneralSettings({ ...defaultGeneral, ...(docSnap.data() as Partial<GeneralSettings>) });
+          const raw = docSnap.data() as Partial<GeneralSettings>;
+          setGeneralSettings({
+            ...defaultGeneral,
+            ...raw,
+            lodgeName: normalizeBrandName(raw.lodgeName),
+            introGreeting: normalizeBrandName(raw.introGreeting),
+          });
         }
         markLoaded();
       },
@@ -825,7 +870,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [authLoading, user, isAdmin]);
 
   const hasFirestoreRules = firestoreRules.length > 0;
-  const rules: LodgeRule[] = hasFirestoreRules ? firestoreRules : STANDARD_17_RULES;
+  const isOnlyLegacySeededRules =
+    hasFirestoreRules &&
+    firestoreRules.every((r) => LEGACY_RULE_IDS.has(r.id)) &&
+    firestoreRules.some((r) => r.id === 'rule-01-advance-rent');
+  const rules: LodgeRule[] =
+    hasFirestoreRules && !isOnlyLegacySeededRules ? firestoreRules : STANDARD_17_RULES;
 
   const syncUserAccountDoc = async (u: User) => {
     try {
@@ -1412,9 +1462,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const uid = requireUid();
       const merged = { ...generalSettings, ...data };
       await setDoc(doc(db, 'settings', 'general'), {
-        lodgeName: merged.lodgeName.trim().slice(0, 120) || 'Student Hostel',
-        lodgeNameHindi: merged.lodgeNameHindi.trim().slice(0, 120) || 'AMIT BHAIYA LAWAJ',
-        introGreeting: merged.introGreeting.slice(0, 100),
+        lodgeName: normalizeBrandName(merged.lodgeName).slice(0, 120),
+        lodgeNameHindi: merged.lodgeNameHindi.trim().slice(0, 120) || 'अमित भैया लॉज',
+        introGreeting: normalizeBrandName(merged.introGreeting).slice(0, 100),
         introSubtitle: merged.introSubtitle.slice(0, 200),
         welcomeBannerText: merged.welcomeBannerText.slice(0, 300),
         homeTagline: merged.homeTagline.slice(0, 200),
@@ -1586,83 +1636,142 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   /**
-   * Monthly Stay Registration Submission (FIXED):
-   * - No parentAddress field stored
-   * - No online signature required (student prints PDF and signs with pen)
-   * - Fast 4s timeout on Firebase Storage upload so unconfigured buckets never hang submission
-   * - Reliable fallback to strictly private owner/admin-only Firestore subcollection
+   * Monthly Stay Registration Submission (ROOT-CAUSE FIXED):
+   * - Students can submit WITHOUT mandatory sign-in (seamless guest session ID or signed-in UID).
+   * - NO dateOfBirth, NO email, NO parentAddress stored.
+   * - Zero undefined/NaN values ever sent to Firestore.
+   * - Validates and safely sizes photo & ID proof before commit.
+   * - Commits parent registration + private photo + private ID proof in ONE atomic writeBatch.
+   * - Surfaces simple, student-friendly error messages while logging full structured context to console.
    */
   const submitStayRegistration = async (
     input: NewStayRegistrationInput,
     overrideUser?: User | null
   ): Promise<StayRegistration> => {
-    const uid = requireUid(overrideUser);
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      const msg = 'Internet connection check karke try again.';
+      showToast(msg, 'error');
+      throw new RegistrationSubmitError('network', msg);
+    }
+
+    const activeUid = overrideUser?.uid || auth.currentUser?.uid || null;
+    const randomToken = `${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 6)}`;
+    const uid = activeUid || `guest_${Date.now().toString(36)}_${randomToken}`;
+
+    // Validate & optimize Student Photo safely
+    let finalPhotoDataUrl = (input.photoDataUrl || '').trim();
+    if (!finalPhotoDataUrl || !finalPhotoDataUrl.startsWith('data:image/')) {
+      const msg = 'Photo upload failed. Please upload your photo again.';
+      showToast(msg, 'error');
+      throw new RegistrationSubmitError('photo', msg);
+    }
+    if (finalPhotoDataUrl.length > 480000) {
+      try {
+        const recompressed = await optimizeImageFile(finalPhotoDataUrl, {
+          maxDimension: 600,
+          quality: 0.78,
+          maxChars: 380000,
+          preferJpeg: true,
+        });
+        finalPhotoDataUrl = recompressed.dataUrl;
+      } catch {
+        const msg = 'Photo upload failed. Please upload your photo again.';
+        showToast(msg, 'error');
+        throw new RegistrationSubmitError('photo', msg);
+      }
+    }
+    if (finalPhotoDataUrl.length < 20 || finalPhotoDataUrl.length > 880000) {
+      const msg = 'Photo upload failed. Please upload your photo again.';
+      showToast(msg, 'error');
+      throw new RegistrationSubmitError('photo', msg);
+    }
+    const finalPhotoMime = inferMimeTypeFromDataUrl(finalPhotoDataUrl, 'student_photo.jpg');
+
+    // Validate & optimize ID Proof safely
+    let finalIdDataUrl = (input.idProofDataUrl || '').trim();
+    if (
+      !finalIdDataUrl ||
+      (!finalIdDataUrl.startsWith('data:image/') && !finalIdDataUrl.startsWith('data:application/pdf'))
+    ) {
+      const msg = 'ID proof upload failed. Please upload your ID proof again.';
+      showToast(msg, 'error');
+      throw new RegistrationSubmitError('id_proof', msg);
+    }
+    let finalIdMime =
+      (input.idProofMimeType || '').trim() ||
+      inferMimeTypeFromDataUrl(finalIdDataUrl, input.idProofFileName || '');
+    if (finalIdMime.length < 3) {
+      finalIdMime = inferMimeTypeFromDataUrl(finalIdDataUrl, input.idProofFileName || '');
+    }
+
+    if (finalIdDataUrl.startsWith('data:image/') && finalIdDataUrl.length > 580000) {
+      try {
+        const recompressed = await optimizeImageFile(finalIdDataUrl, {
+          maxDimension: 1080,
+          quality: 0.74,
+          maxChars: 520000,
+          preferJpeg: true,
+        });
+        finalIdDataUrl = recompressed.dataUrl;
+        finalIdMime = recompressed.mimeType;
+      } catch {
+        const msg = 'ID proof upload failed. Please upload your ID proof again.';
+        showToast(msg, 'error');
+        throw new RegistrationSubmitError('id_proof', msg);
+      }
+    }
+    if (finalIdDataUrl.length < 20 || finalIdDataUrl.length > 880000) {
+      const msg = 'ID proof upload failed. Please upload your ID proof again.';
+      showToast(msg, 'error');
+      throw new RegistrationSubmitError('id_proof', msg);
+    }
+
     const { dateIST, timeIST, fullIST } = getCurrentISTDateTime();
     const rand = Math.floor(1000 + Math.random() * 9000);
     const yearPart = dateIST.split('/')[2] || String(new Date().getFullYear());
     const registrationId = `SH-${yearPart}-${rand}`;
     const docId = `${registrationId}-${Date.now().toString(36)}`;
 
-    const photoPath = `registrations/${uid}/${docId}/photo.jpg`;
-    const idExt = input.idProofMimeType === 'application/pdf' ? 'pdf' : 'jpg';
-    const idPath = `registrations/${uid}/${docId}/id_proof.${idExt}`;
+    const safeFileName = (input.idProofFileName || 'id_proof').trim().slice(0, 180) || 'id_proof';
 
-    let storageBackend: 'firebase_storage' | 'firestore_private' = 'firestore_private';
-
-    // Try private Firebase Storage with a 4-second timeout so it NEVER hangs
-    try {
-      await withTimeout(
-        Promise.all([
-          uploadString(storageRef(storage, photoPath), input.photoDataUrl, 'data_url'),
-          uploadString(storageRef(storage, idPath), input.idProofDataUrl, 'data_url'),
-        ]),
-        4000
-      );
-      storageBackend = 'firebase_storage';
-    } catch {
-      // Seamless fallback to strictly owner/admin-isolated private Firestore subcollection
-      storageBackend = 'firestore_private';
-    }
-
+    // Strict zero-undefined registration document (NO dateOfBirth, NO email, NO parentAddress)
     const regRecord = {
       registrationId,
       userId: uid,
       status: 'submitted' as RegistrationStatus,
-      fullName: input.fullName.trim().slice(0, 120),
-      dateOfBirth: input.dateOfBirth.trim().slice(0, 30),
-      gender: input.gender.trim().slice(0, 30),
-      mobile: input.mobile.trim().slice(0, 25),
-      email: (input.email || '').trim().slice(0, 120),
-      addressHouse: input.addressHouse.trim().slice(0, 200),
+      fullName: (input.fullName || '').trim().slice(0, 120),
+      gender: (input.gender || 'Male').trim().slice(0, 30),
+      mobile: (input.mobile || '').trim().slice(0, 25),
+      addressHouse: (input.addressHouse || '').trim().slice(0, 200),
       addressPostOffice: (input.addressPostOffice || '').trim().slice(0, 120),
-      addressDistrict: input.addressDistrict.trim().slice(0, 100),
-      addressState: input.addressState.trim().slice(0, 100),
-      addressPin: input.addressPin.trim().slice(0, 15),
-      fatherName: input.fatherName.trim().slice(0, 120),
-      motherName: input.motherName.trim().slice(0, 120),
-      parentMobile: input.parentMobile.trim().slice(0, 25),
+      addressDistrict: (input.addressDistrict || '').trim().slice(0, 100),
+      addressState: (input.addressState || '').trim().slice(0, 100),
+      addressPin: (input.addressPin || '').trim().slice(0, 15),
+      fatherName: (input.fatherName || '').trim().slice(0, 120),
+      motherName: (input.motherName || '').trim().slice(0, 120),
+      parentMobile: (input.parentMobile || '').trim().slice(0, 25),
       emergencyContact: (input.emergencyContact || '').trim().slice(0, 30),
       emergencyRelation: (input.emergencyRelation || '').trim().slice(0, 60),
       idProofType: input.idProofType,
-      idProofFileName: input.idProofFileName.slice(0, 180),
-      idProofMimeType: input.idProofMimeType.slice(0, 80),
-      idProofStoragePath: storageBackend === 'firebase_storage' ? idPath : '',
-      photoStoragePath: storageBackend === 'firebase_storage' ? photoPath : '',
+      idProofFileName: safeFileName,
+      idProofMimeType: finalIdMime.slice(0, 80),
+      idProofStoragePath: '',
+      photoStoragePath: '',
       signatureStoragePath: '',
       signedDocFileName: '',
       signedDocMimeType: '',
       signedDocStoragePath: '',
-      storageBackend,
+      storageBackend: 'firestore_private' as const,
       roomPreference: input.roomPreference,
-      selectedRoomId: (input.selectedRoomId || '').slice(0, 128),
-      selectedRoomName: (input.selectedRoomName || '').slice(0, 120),
+      selectedRoomId: (input.selectedRoomId || '').trim().slice(0, 128),
+      selectedRoomName: (input.selectedRoomName || '').trim().slice(0, 120),
       assignedRoomNumber: '',
-      monthlyRent: input.monthlyRent ?? null,
-      securityDeposit: input.securityDeposit ?? null,
-      advanceRent: input.advanceRent ?? null,
-      totalPayable: input.totalPayable ?? null,
-      joiningDate: input.joiningDate.trim().slice(0, 30),
-      stayDuration: input.stayDuration.trim().slice(0, 60) || 'Monthly Stay',
+      monthlyRent: sanitizeNumberInRange(input.monthlyRent, 0, 100000),
+      securityDeposit: sanitizeNumberInRange(input.securityDeposit, 0, 100000),
+      advanceRent: sanitizeNumberInRange(input.advanceRent, 0, 100000),
+      totalPayable: sanitizeNumberInRange(input.totalPayable, 0, 500000),
+      joiningDate: (input.joiningDate || '').trim().slice(0, 30),
+      stayDuration: (input.stayDuration || 'Monthly Stay').trim().slice(0, 60) || 'Monthly Stay',
       agreementAccepted: true,
       agreementVersion: 'v2-hindi-print-sign',
       registrationDateIST: dateIST,
@@ -1677,29 +1786,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
 
     try {
-      await setDoc(doc(db, 'registrations', docId), regRecord);
+      // Single atomic Firestore batch: registration + private photo + private ID proof together
+      const batch = writeBatch(db);
+      const regDocRef = doc(db, 'registrations', docId);
+      const photoDocRef = doc(db, 'registrations', docId, 'documents', 'photo');
+      const idProofDocRef = doc(db, 'registrations', docId, 'documents', 'id_proof');
 
-      if (storageBackend === 'firestore_private') {
-        const docsRef = collection(db, 'registrations', docId, 'documents');
-        await Promise.all([
-          setDoc(doc(docsRef, 'photo'), {
-            docType: 'photo',
-            userId: uid,
-            fileName: 'student_photo.jpg',
-            mimeType: 'image/jpeg',
-            dataUrl: input.photoDataUrl.slice(0, 899000),
-            createdAt: serverTimestamp(),
-          }),
-          setDoc(doc(docsRef, 'id_proof'), {
-            docType: 'id_proof',
-            userId: uid,
-            fileName: input.idProofFileName.slice(0, 180),
-            mimeType: input.idProofMimeType.slice(0, 80),
-            dataUrl: input.idProofDataUrl.slice(0, 899000),
-            createdAt: serverTimestamp(),
-          }),
-        ]);
-      }
+      batch.set(regDocRef, regRecord);
+      batch.set(photoDocRef, {
+        docType: 'photo',
+        userId: uid,
+        fileName: 'student_photo.jpg',
+        mimeType: finalPhotoMime.slice(0, 80),
+        dataUrl: finalPhotoDataUrl,
+        createdAt: serverTimestamp(),
+      });
+      batch.set(idProofDocRef, {
+        docType: 'id_proof',
+        userId: uid,
+        fileName: safeFileName,
+        mimeType: finalIdMime.slice(0, 80),
+        dataUrl: finalIdDataUrl,
+        createdAt: serverTimestamp(),
+      });
+
+      await batch.commit();
 
       showToast('Registration submitted successfully.', 'success');
       return {
@@ -1707,12 +1818,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...regRecord,
       };
     } catch (error) {
-      showToast('Unable to save registration. Please verify sign-in and try again.', 'error');
-      handleFirestoreError(error, OperationType.CREATE, `registrations/${docId}`);
+      // Log rich diagnostic context via handleFirestoreError without exposing raw technical strings to the student
+      try {
+        handleFirestoreError(error, OperationType.CREATE, `registrations/${docId}`);
+      } catch {
+        // Already logged to console.error with full FirestoreErrorInfo JSON
+      }
+
+      const rawMsg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+      const rawCode = ((error as { code?: string })?.code || '').toLowerCase();
+
+      if (
+        rawCode.includes('unavailable') ||
+        rawMsg.includes('offline') ||
+        rawMsg.includes('network') ||
+        rawMsg.includes('failed to fetch')
+      ) {
+        const msg = 'Internet connection check karke try again.';
+        showToast(msg, 'error');
+        throw new RegistrationSubmitError('network', msg);
+      }
+
+      if (rawCode.includes('auth/') || rawMsg.includes('token-expired') || rawMsg.includes('unauthenticated')) {
+        const msg = 'Please login again and try.';
+        showToast(msg, 'error');
+        throw new RegistrationSubmitError('auth', msg);
+      }
+
+      const msg = 'Registration save nahi ho paaya. Please try again.';
+      showToast(msg, 'error');
+      throw new RegistrationSubmitError('save', msg);
     }
   };
 
   const markRegistrationPdfGenerated = async (regId: string) => {
+    // Only authorized admin modifies existing registration records (students cannot mutate existing records)
+    if (!isAdmin) return;
     try {
       const { fullIST } = getCurrentISTDateTime();
       await updateDoc(doc(db, 'registrations', regId), {

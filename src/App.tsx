@@ -88,7 +88,7 @@ function buildRoomShareMessage(room: Room, settings: GeneralSettings): string {
   };
 
   const lines: string[] = [
-    `*${settings.lodgeName || 'Student Hostel'}* — Monthly Student Accommodation`,
+    `*${settings.lodgeName || 'Amit Bhaiya Lawaj'}* — Monthly Student Accommodation`,
     `Room: *${room.name}* (#${room.roomNumber})`,
     `Type: ${room.roomType}${room.size ? ` · Size: ${room.size}` : ''}`,
     `Capacity: Up to ${room.maxGuests} student${room.maxGuests > 1 ? 's' : ''}`,
@@ -179,10 +179,10 @@ function HomeView() {
           <div className="lg:col-span-6 p-6 sm:p-8 lg:p-10 space-y-5">
             <div className="space-y-2.5">
               <p className="text-xs font-semibold text-emerald-700 tracking-wide">
-                Monthly Student Accommodation · {generalSettings.lodgeName || 'Student Hostel'}
+                Monthly Student Accommodation · {generalSettings.lodgeName || 'Amit Bhaiya Lawaj'}
               </p>
               <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight leading-tight">
-                {generalSettings.introGreeting || 'Student Hostel'}
+                🏠 {generalSettings.introGreeting || 'Amit Bhaiya Lawaj'}
               </h1>
               <p className="text-lg sm:text-xl font-semibold text-blue-700">
                 {generalSettings.introSubtitle || 'Safe Stay. Better Study. Better Future.'}
@@ -224,7 +224,7 @@ function HomeView() {
             <div className="rounded-2xl overflow-hidden border border-slate-100 bg-slate-50/40">
               <img
                 src={generalSettings.heroImageUrl || HOSTEL_ASSETS.welcomeIllustration}
-                alt="Student Hostel accommodation"
+                alt="Amit Bhaiya Lawaj accommodation"
                 className="w-full aspect-video object-cover"
                 referrerPolicy="no-referrer"
               />
@@ -365,7 +365,7 @@ function RoomsView() {
   ];
 
   const generalShareMessage = [
-    `*${generalSettings.lodgeName || 'Student Hostel'}* — Rooms & Monthly Rent`,
+    `*${generalSettings.lodgeName || 'Amit Bhaiya Lawaj'}* — Rooms & Monthly Rent`,
     generalSettings.defaultPrice1 != null
       ? `Single Sharing: ₹${generalSettings.defaultPrice1}/Month`
       : 'Single / Double / Triple Sharing monthly rooms available.',
@@ -970,7 +970,7 @@ function ContactView() {
               <span>Hostel Address &amp; Stay Info</span>
             </div>
             <h2 className="text-xl font-bold text-slate-900">
-              {generalSettings.lodgeName || 'Student Hostel'}
+              🏠 {generalSettings.lodgeName || 'Amit Bhaiya Lawaj'}
             </h2>
             {locationSettings.address || locationSettings.city ? (
               <div className="text-sm text-slate-600 space-y-1">
@@ -1094,13 +1094,11 @@ function ProfileView() {
         registrationId: reg.registrationId,
         registrationDateIST: reg.registrationDateIST,
         registrationTimeIST: reg.registrationTimeIST,
-        hostelName: generalSettings.lodgeName || 'Student Hostel',
+        hostelName: generalSettings.lodgeName || 'Amit Bhaiya Lawaj',
         hostelSubName: generalSettings.lodgeNameHindi,
         fullName: reg.fullName,
-        dateOfBirth: reg.dateOfBirth,
         gender: reg.gender,
         mobile: reg.mobile,
-        email: reg.email,
         addressHouse: reg.addressHouse,
         addressPostOffice: reg.addressPostOffice,
         addressDistrict: reg.addressDistrict,
@@ -1376,7 +1374,7 @@ function HostelAppShell() {
   // Keep canonical URL, og:url, and document title cleanly synced per page
   useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
-    const baseName = generalSettings.lodgeName || 'Student Hostel';
+    const baseName = generalSettings.lodgeName || 'Amit Bhaiya Lawaj';
     const titleMap: Record<AppTab, string> = {
       home: `${baseName} — Monthly Stay Registration`,
       rooms: `Rooms & Monthly Rent | ${baseName}`,
@@ -1473,7 +1471,7 @@ function HostelAppShell() {
             {generalSettings.logoUrl ? (
               <img
                 src={generalSettings.logoUrl}
-                alt={generalSettings.lodgeName || 'Student Hostel'}
+                alt={generalSettings.lodgeName || 'Amit Bhaiya Lawaj'}
                 className="w-9 h-9 rounded-xl object-cover border border-slate-200 shrink-0"
               />
             ) : (
@@ -1483,7 +1481,7 @@ function HostelAppShell() {
             )}
             <div className="min-w-0">
               <span className="text-base font-bold text-slate-900 tracking-tight block truncate">
-                {generalSettings.lodgeName || 'Student Hostel'}
+                {generalSettings.lodgeName || 'Amit Bhaiya Lawaj'}
               </span>
               <span className="text-xs text-slate-500 block mt-0.5 truncate">
                 Monthly Stay Registration
@@ -1584,14 +1582,14 @@ function HostelAppShell() {
           {generalSettings.logoUrl ? (
             <img
               src={generalSettings.logoUrl}
-              alt={generalSettings.lodgeName || 'Student Hostel'}
+              alt={generalSettings.lodgeName || 'Amit Bhaiya Lawaj'}
               className="w-7 h-7 rounded-lg object-cover border border-slate-200 shrink-0"
             />
           ) : (
             <span className="text-base" aria-hidden="true">🏠</span>
           )}
           <span className="text-base font-bold text-slate-900 tracking-tight truncate">
-            {generalSettings.lodgeName || 'Student Hostel'}
+            {generalSettings.lodgeName || 'Amit Bhaiya Lawaj'}
           </span>
         </button>
 
@@ -1655,7 +1653,7 @@ function HostelAppShell() {
                 {generalSettings.logoUrl ? (
                   <img
                     src={generalSettings.logoUrl}
-                    alt={generalSettings.lodgeName || 'Student Hostel'}
+                    alt={generalSettings.lodgeName || 'Amit Bhaiya Lawaj'}
                     className="w-8 h-8 rounded-lg object-cover border border-slate-200 shrink-0"
                   />
                 ) : (
@@ -1663,7 +1661,7 @@ function HostelAppShell() {
                 )}
                 <div>
                   <p className="text-sm font-bold text-slate-900">
-                    {generalSettings.lodgeName || 'Student Hostel'}
+                    {generalSettings.lodgeName || 'Amit Bhaiya Lawaj'}
                   </p>
                   <p className="text-xs text-slate-500">
                     Safe, peaceful monthly accommodation for students · Managed by {ownerProfile.name}
@@ -1747,7 +1745,7 @@ function HostelAppShell() {
                 )}
               </div>
               <p>
-                © {new Date().getFullYear()} {generalSettings.lodgeName || 'Student Hostel'}. All rights
+                © {new Date().getFullYear()} {generalSettings.lodgeName || 'Amit Bhaiya Lawaj'}. All rights
                 reserved.
               </p>
             </div>

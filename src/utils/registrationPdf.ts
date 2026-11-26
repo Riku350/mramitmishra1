@@ -9,12 +9,10 @@ export interface RegistrationPdfPayload {
   registrationTimeIST: string;
   hostelName: string;
   hostelSubName?: string;
-  // Student Details
+  // Student Details (No DOB or Email)
   fullName: string;
-  dateOfBirth: string;
   gender: string;
   mobile: string;
-  email?: string;
   addressHouse: string;
   addressPostOffice?: string;
   addressDistrict: string;
@@ -184,7 +182,7 @@ function dataUrlToUint8Array(dataUrl: string): Uint8Array {
 }
 
 /**
- * Generates a print-ready A4 white PDF document for Student Hostel Stay Registration.
+ * Generates a print-ready A4 white PDF document for Amit Bhaiya Lawaj Stay Registration.
  * - Preserves cropped student photo aspect ratio (zero stretching).
  * - Provides clean blank pen-signature blocks for Student and Parent/Guardian after printing.
  * - Places Identity Proof on dedicated separate full A4 page(s), never combined with the agreement page.
@@ -284,12 +282,12 @@ export async function generateRegistrationPdf(payload: RegistrationPdfPayload): 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14.5);
   doc.setTextColor(15, 23, 42);
-  doc.text('STUDENT HOSTEL STAY REGISTRATION', margin + 5, y + 10.5);
+  doc.text('AMIT BHAIYA LAWAJ — STAY REGISTRATION', margin + 5, y + 10.5);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
   doc.setTextColor(71, 85, 105);
-  doc.text(payload.hostelName || 'Student Hostel', margin + 5, y + 16.5);
+  doc.text(payload.hostelName || 'Amit Bhaiya Lawaj', margin + 5, y + 16.5);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.2);
@@ -361,10 +359,9 @@ export async function generateRegistrationPdf(payload: RegistrationPdfPayload): 
   drawSectionHeader('1. Student Details');
   drawKeyValueGrid([
     ['Full Name', payload.fullName],
-    ['Date of Birth', payload.dateOfBirth],
     ['Gender', payload.gender],
     ['Mobile Number', payload.mobile],
-    ['Email Address', payload.email || 'Not provided'],
+    ['District', payload.addressDistrict],
     ['Complete Address', fullAddress],
   ]);
 
@@ -607,7 +604,7 @@ export async function generateRegistrationPdf(payload: RegistrationPdfPayload): 
   }
 
   const safeName = payload.fullName.replace(/[^a-zA-Z0-9]+/g, '_').slice(0, 32) || 'Student';
-  const fileName = `${payload.registrationId}_${safeName}_Hostel_Registration.pdf`;
+  const fileName = `${payload.registrationId}_${safeName}_Amit_Bhaiya_Lawaj_Registration.pdf`;
 
   // ==================== APPEND MULTI-PAGE PDF IDENTITY PROOF AS SEPARATE FULL PAGES ====================
   if (isPdfIdProof && payload.idProofDataUrl) {

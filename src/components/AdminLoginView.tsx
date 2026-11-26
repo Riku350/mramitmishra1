@@ -89,9 +89,11 @@ export function AdminLoginView() {
           <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
             <ShieldCheck className="w-6 h-6" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Admin Login</h1>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            🏠 Amit Bhaiya Lawaj — Admin Login
+          </h1>
           <p className="text-xs sm:text-sm text-slate-500">
-            Restricted access for authorized Student Hostel administrator only.
+            Restricted access for authorized Amit Bhaiya Lawaj administrator only.
           </p>
         </div>
 
