@@ -1,0 +1,743 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // Global Hardened Primitives
+    // =========================================================================
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    // Single strictly authorized admin email (case-insensitive, verified token required)
+    function isAdmin() {
+      return isVerifiedUser() &&
+        request.auth.token.email is string &&
+        request.auth.token.email.lower() == 'godrikuop@gmail.com';
+    }
+
+    function isValidGuestUserId(uid) {
+      return uid is string &&
+        uid.size() >= 14 &&
+        uid.size() <= 72 &&
+        uid.matches('^guest_[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidSubmitterUserId(uid) {
+      return (isSignedIn() && uid == request.auth.uid) ||
+        (!isSignedIn() && isValidGuestUserId(uid));
+    }
+
+    function isOptionalNumberInRange(data, key, minVal, maxVal) {
+      return !(key in data) || data[key] == null || (
+        (data[key] is int || data[key] is float) &&
+        data[key] >= minVal &&
+        data[key] <= maxVal
+      );
+    }
+
+    function isOptionalString(data, key, maxLen) {
+      return !(key in data) || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    function isValidStringList(listVal, maxItems) {
+      return listVal is list &&
+        listVal.size() <= maxItems &&
+        (listVal.size() == 0 || listVal[0] is string);
+    }
+
+    function isOptionalStringList(data, key, maxItems) {
+      return !(key in data) || isValidStringList(data[key], maxItems);
+    }
+
+    // =========================================================================
+    // Entity Validation Blueprints (Anti-Update-Gap & Volumetric Guards)
+    // =========================================================================
+    function isValidRoom(data) {
+      return data.keys().hasAll(['name', 'roomNumber', 'roomType', 'maxGuests', 'status', 'facilities', 'createdAt', 'updatedAt', 'updatedBy']) &&
+        data.keys().hasOnly([
+          'name', 'roomNumber', 'roomType', 'size', 'maxGuests', 'availableBeds',
+          'price1', 'price2', 'price3', 'price4', 'extraPersonPrice',
+          'securityDeposit', 'advanceRent',
+          'facilities', 'status', 'description', 'imageUrl', 'photos', 'sortOrder',
+          'createdAt', 'updatedAt', 'updatedBy'
+        ]) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.roomNumber is string && data.roomNumber.size() >= 1 && data.roomNumber.size() <= 40 &&
+        data.roomType is string && data.roomType.size() >= 1 && data.roomType.size() <= 60 &&
+        isOptionalString(data, 'size', 60) &&
+        (data.maxGuests is int || data.maxGuests is float) && data.maxGuests >= 1 && data.maxGuests <= 20 &&
+        isOptionalNumberInRange(data, 'availableBeds', 0, 20) &&
+        isOptionalNumberInRange(data, 'price1', 0, 100000) &&
+        isOptionalNumberInRange(data, 'price2', 0, 100000) &&
+        isOptionalNumberInRange(data, 'price3', 0, 100000) &&
+        isOptionalNumberInRange(data, 'price4', 0, 100000) &&
+        isOptionalNumberInRange(data, 'extraPersonPrice', 0, 50000) &&
+        isOptionalNumberInRange(data, 'securityDeposit', 0, 100000) &&
+        isOptionalNumberInRange(data, 'advanceRent', 0, 100000) &&
+        isValidStringList(data.facilities, 20) &&
+        data.status in ['available', 'occupied', 'maintenance', 'cleaning'] &&
+        isOptionalString(data, 'description', 1200) &&
+        isOptionalString(data, 'imageUrl', 250000) &&
+        isOptionalStringList(data, 'photos', 6) &&
+        isOptionalNumberInRange(data, 'sortOrder', 0, 1000) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        data.updatedBy is string && data.updatedBy == request.auth.uid;
+    }
+
+    function isValidFacility(data) {
+      return data.keys().hasAll(['name', 'icon', 'enabled', 'createdAt', 'updatedAt', 'updatedBy']) &&
+        data.keys().hasOnly(['name', 'icon', 'imageUrl', 'description', 'enabled', 'sortOrder', 'createdAt', 'updatedAt', 'updatedBy']) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.icon is string && data.icon.size() >= 1 && data.icon.size() <= 40 &&
+        isOptionalString(data, 'imageUrl', 250000) &&
+        isOptionalString(data, 'description', 500) &&
+        data.enabled is bool &&
+        isOptionalNumberInRange(data, 'sortOrder', 0, 1000) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        data.updatedBy is string && data.updatedBy == request.auth.uid;
+    }
+
+    function isValidGalleryItem(data) {
+      return data.keys().hasAll(['title', 'category', 'imageUrl', 'createdAt', 'updatedAt', 'updatedBy']) &&
+        data.keys().hasOnly(['title', 'category', 'imageUrl', 'description', 'sortOrder', 'createdAt', 'updatedAt', 'updatedBy']) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+        data.category in ['hostel', 'lodge', 'rooms', 'bathroom', 'parking', 'rooftop', 'study_area', 'other', 'surroundings', 'owner'] &&
+        data.imageUrl is string && data.imageUrl.size() >= 1 && data.imageUrl.size() <= 250000 &&
+        isOptionalString(data, 'description', 400) &&
+        isOptionalNumberInRange(data, 'sortOrder', 0, 1000) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        data.updatedBy is string && data.updatedBy == request.auth.uid;
+    }
+
+    function isValidRule(data) {
+      return data.keys().hasAll(['title', 'enabled', 'sortOrder', 'createdAt', 'updatedAt', 'updatedBy']) &&
+        data.keys().hasOnly([
+          'title', 'description', 'englishLabel', 'icon', 'variant', 'category', 'highlights',
+          'sortOrder', 'enabled', 'createdAt', 'updatedAt', 'updatedBy'
+        ]) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 140 &&
+        isOptionalString(data, 'description', 800) &&
+        isOptionalString(data, 'englishLabel', 140) &&
+        isOptionalString(data, 'icon', 40) &&
+        (!('variant' in data) || data.variant in ['default', 'important', 'warning']) &&
+        isOptionalString(data, 'category', 60) &&
+        isOptionalStringList(data, 'highlights', 10) &&
+        (data.sortOrder is int || data.sortOrder is float) && data.sortOrder >= 0 && data.sortOrder <= 1000 &&
+        data.enabled is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        data.updatedBy is string && data.updatedBy == request.auth.uid;
+    }
+
+    function isValidGeneralSettings(data) {
+      return data.keys().hasAll(['lodgeName', 'lodgeNameHindi', 'updatedAt', 'updatedBy']) &&
+        data.keys().hasOnly([
+          'lodgeName', 'lodgeNameHindi', 'introGreeting', 'introSubtitle',
+          'welcomeBannerText', 'homeTagline', 'aboutLodge', 'monthlyStayInfo', 'heroImageUrl',
+          'logoUrl', 'dataRetentionPolicy',
+          'startingPrice', 'priceNote',
+          'defaultPrice1', 'defaultPrice2', 'defaultPrice3', 'defaultPrice4',
+          'defaultSecurityDeposit',
+          'checkInTime', 'checkOutTime', 'updatedAt', 'updatedBy'
+        ]) &&
+        data.lodgeName is string && data.lodgeName.size() >= 1 && data.lodgeName.size() <= 120 &&
+        data.lodgeNameHindi is string && data.lodgeNameHindi.size() >= 1 && data.lodgeNameHindi.size() <= 120 &&
+        isOptionalString(data, 'introGreeting', 100) &&
+        isOptionalString(data, 'introSubtitle', 200) &&
+        isOptionalString(data, 'welcomeBannerText', 300) &&
+        isOptionalString(data, 'homeTagline', 200) &&
+        isOptionalString(data, 'aboutLodge', 2000) &&
+        isOptionalString(data, 'monthlyStayInfo', 1000) &&
+        isOptionalString(data, 'heroImageUrl', 250000) &&
+        isOptionalString(data, 'logoUrl', 250000) &&
+        isOptionalString(data, 'dataRetentionPolicy', 800) &&
+        isOptionalNumberInRange(data, 'startingPrice', 0, 100000) &&
+        isOptionalString(data, 'priceNote', 400) &&
+        isOptionalNumberInRange(data, 'defaultPrice1', 0, 100000) &&
+        isOptionalNumberInRange(data, 'defaultPrice2', 0, 100000) &&
+        isOptionalNumberInRange(data, 'defaultPrice3', 0, 100000) &&
+        isOptionalNumberInRange(data, 'defaultPrice4', 0, 100000) &&
+        isOptionalNumberInRange(data, 'defaultSecurityDeposit', 0, 100000) &&
+        isOptionalString(data, 'checkInTime', 120) &&
+        isOptionalString(data, 'checkOutTime', 120) &&
+        data.updatedAt is timestamp &&
+        data.updatedBy is string && data.updatedBy == request.auth.uid;
+    }
+
+    function isValidContactSettings(data) {
+      return data.keys().hasAll(['updatedAt', 'updatedBy']) &&
+        data.keys().hasOnly(['phone', 'whatsapp', 'email', 'otherInfo', 'updatedAt', 'updatedBy']) &&
+        isOptionalString(data, 'phone', 30) &&
+        isOptionalString(data, 'whatsapp', 30) &&
+        isOptionalString(data, 'email', 120) &&
+        isOptionalString(data, 'otherInfo', 500) &&
+        data.updatedAt is timestamp &&
+        data.updatedBy is string && data.updatedBy == request.auth.uid;
+    }
+
+    function isValidLocationSettings(data) {
+      return data.keys().hasAll(['updatedAt', 'updatedBy']) &&
+        data.keys().hasOnly(['address', 'landmark', 'city', 'googleMapsUrl', 'updatedAt', 'updatedBy']) &&
+        isOptionalString(data, 'address', 500) &&
+        isOptionalString(data, 'landmark', 200) &&
+        isOptionalString(data, 'city', 100) &&
+        isOptionalString(data, 'googleMapsUrl', 1000) &&
+        data.updatedAt is timestamp &&
+        data.updatedBy is string && data.updatedBy == request.auth.uid;
+    }
+
+    function isValidParkingSettings(data) {
+      return data.keys().hasAll(['available', 'bikeParking', 'carParking', 'updatedAt', 'updatedBy']) &&
+        data.keys().hasOnly([
+          'available', 'headline', 'bikeParking', 'carParking',
+          'capacity', 'rules', 'extraCharge', 'imageUrl', 'updatedAt', 'updatedBy'
+        ]) &&
+        data.available is bool &&
+        isOptionalString(data, 'headline', 200) &&
+        data.bikeParking is bool &&
+        data.carParking is bool &&
+        isOptionalString(data, 'capacity', 120) &&
+        isOptionalString(data, 'rules', 800) &&
+        isOptionalString(data, 'extraCharge', 120) &&
+        isOptionalString(data, 'imageUrl', 250000) &&
+        data.updatedAt is timestamp &&
+        data.updatedBy is string && data.updatedBy == request.auth.uid;
+    }
+
+    function isValidRooftopSettings(data) {
+      return data.keys().hasAll(['available', 'features', 'updatedAt', 'updatedBy']) &&
+        data.keys().hasOnly(['available', 'headline', 'description', 'features', 'imageUrl', 'updatedAt', 'updatedBy']) &&
+        data.available is bool &&
+        isOptionalString(data, 'headline', 200) &&
+        isOptionalString(data, 'description', 1000) &&
+        isValidStringList(data.features, 15) &&
+        isOptionalString(data, 'imageUrl', 250000) &&
+        data.updatedAt is timestamp &&
+        data.updatedBy is string && data.updatedBy == request.auth.uid;
+    }
+
+    function isValidOwnerProfile(data) {
+      return data.keys().hasAll(['name', 'role', 'updatedAt', 'updatedBy']) &&
+        data.keys().hasOnly(['name', 'role', 'photoUrl', 'about', 'phone', 'whatsapp', 'email', 'address', 'updatedAt', 'updatedBy']) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.role is string && data.role.size() >= 1 && data.role.size() <= 100 &&
+        isOptionalString(data, 'photoUrl', 250000) &&
+        isOptionalString(data, 'about', 1500) &&
+        isOptionalString(data, 'phone', 30) &&
+        isOptionalString(data, 'whatsapp', 30) &&
+        isOptionalString(data, 'email', 120) &&
+        isOptionalString(data, 'address', 500) &&
+        data.updatedAt is timestamp &&
+        data.updatedBy is string && data.updatedBy == request.auth.uid;
+    }
+
+    function isValidBooking(data) {
+      return data.keys().hasAll(['guestName', 'roomName', 'guestsCount', 'status', 'userId', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'guestName', 'guestPhone', 'roomId', 'roomName', 'guestsCount',
+          'checkInDate', 'checkOutDate', 'totalAmount', 'status', 'notes',
+          'userId', 'createdAt', 'updatedAt'
+        ]) &&
+        data.guestName is string && data.guestName.size() >= 1 && data.guestName.size() <= 100 &&
+        isOptionalString(data, 'guestPhone', 25) &&
+        isOptionalString(data, 'roomId', 128) &&
+        data.roomName is string && data.roomName.size() >= 1 && data.roomName.size() <= 120 &&
+        (data.guestsCount is int || data.guestsCount is float) && data.guestsCount >= 1 && data.guestsCount <= 20 &&
+        isOptionalString(data, 'checkInDate', 30) &&
+        isOptionalString(data, 'checkOutDate', 30) &&
+        isOptionalNumberInRange(data, 'totalAmount', 0, 1000000) &&
+        data.status in ['pending', 'confirmed', 'checked_in', 'completed', 'cancelled'] &&
+        isOptionalString(data, 'notes', 500) &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidUserAccount(data, userId) {
+      return data.keys().hasAll(['uid', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'email', 'createdAt', 'updatedAt']) &&
+        data.uid is string && data.uid == userId &&
+        isOptionalString(data, 'displayName', 120) &&
+        isOptionalString(data, 'email', 120) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAdminRecord(data) {
+      return data.keys().hasAll(['email', 'addedBy', 'createdAt']) &&
+        data.keys().hasOnly(['email', 'addedBy', 'createdAt']) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 120 &&
+        data.addedBy is string && data.addedBy == request.auth.uid &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidStayRegistration(data) {
+      return data.keys().hasAll([
+          'registrationId', 'userId', 'status', 'fullName', 'dateOfBirth', 'gender', 'mobile',
+          'addressHouse', 'addressDistrict', 'addressState', 'addressPin',
+          'fatherName', 'motherName', 'parentMobile',
+          'idProofType', 'roomPreference', 'joiningDate', 'stayDuration',
+          'agreementAccepted', 'registrationDateIST', 'registrationTimeIST',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'registrationId', 'userId', 'status', 'fullName', 'dateOfBirth', 'gender', 'mobile', 'email',
+          'addressHouse', 'addressPostOffice', 'addressDistrict', 'addressState', 'addressPin',
+          'fatherName', 'motherName', 'parentMobile', 'emergencyContact', 'emergencyRelation',
+          'idProofType', 'idProofFileName', 'idProofMimeType',
+          'idProofStoragePath', 'photoStoragePath', 'signatureStoragePath',
+          'signedDocFileName', 'signedDocMimeType', 'signedDocStoragePath',
+          'storageBackend',
+          'roomPreference', 'selectedRoomId', 'selectedRoomName', 'assignedRoomNumber',
+          'monthlyRent', 'securityDeposit', 'advanceRent', 'totalPayable',
+          'joiningDate', 'stayDuration', 'agreementAccepted', 'agreementVersion',
+          'registrationDateIST', 'registrationTimeIST',
+          'pdfGeneratedAtIST', 'statusUpdatedAtIST', 'signedDocUploadedAtIST', 'updatedAtIST',
+          'adminNotes',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.registrationId is string && data.registrationId.size() >= 4 && data.registrationId.size() <= 40 &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.status in [
+          'submitted', 'pdf_generated', 'printed', 'signed_copy_received',
+          'pending', 'approved', 'rejected', 'room_assigned', 'active', 'completed'
+        ] &&
+        data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120 &&
+        data.dateOfBirth is string && data.dateOfBirth.size() >= 4 && data.dateOfBirth.size() <= 30 &&
+        data.gender is string && data.gender.size() >= 1 && data.gender.size() <= 30 &&
+        data.mobile is string && data.mobile.size() >= 8 && data.mobile.size() <= 25 &&
+        isOptionalString(data, 'email', 120) &&
+        data.addressHouse is string && data.addressHouse.size() >= 1 && data.addressHouse.size() <= 200 &&
+        isOptionalString(data, 'addressPostOffice', 120) &&
+        data.addressDistrict is string && data.addressDistrict.size() >= 1 && data.addressDistrict.size() <= 100 &&
+        data.addressState is string && data.addressState.size() >= 1 && data.addressState.size() <= 100 &&
+        data.addressPin is string && data.addressPin.size() >= 4 && data.addressPin.size() <= 15 &&
+        data.fatherName is string && data.fatherName.size() >= 1 && data.fatherName.size() <= 120 &&
+        data.motherName is string && data.motherName.size() >= 1 && data.motherName.size() <= 120 &&
+        data.parentMobile is string && data.parentMobile.size() >= 8 && data.parentMobile.size() <= 25 &&
+        isOptionalString(data, 'emergencyContact', 30) &&
+        isOptionalString(data, 'emergencyRelation', 60) &&
+        data.idProofType in ['Aadhaar Card', 'Other Valid ID'] &&
+        isOptionalString(data, 'idProofFileName', 180) &&
+        isOptionalString(data, 'idProofMimeType', 80) &&
+        isOptionalString(data, 'idProofStoragePath', 400) &&
+        isOptionalString(data, 'photoStoragePath', 400) &&
+        isOptionalString(data, 'signatureStoragePath', 400) &&
+        isOptionalString(data, 'signedDocFileName', 180) &&
+        isOptionalString(data, 'signedDocMimeType', 80) &&
+        isOptionalString(data, 'signedDocStoragePath', 400) &&
+        (!('storageBackend' in data) || data.storageBackend in ['firebase_storage', 'firestore_private']) &&
+        data.roomPreference in ['Single', 'Double', 'Triple'] &&
+        isOptionalString(data, 'selectedRoomId', 128) &&
+        isOptionalString(data, 'selectedRoomName', 120) &&
+        isOptionalString(data, 'assignedRoomNumber', 40) &&
+        isOptionalNumberInRange(data, 'monthlyRent', 0, 100000) &&
+        isOptionalNumberInRange(data, 'securityDeposit', 0, 100000) &&
+        isOptionalNumberInRange(data, 'advanceRent', 0, 100000) &&
+        isOptionalNumberInRange(data, 'totalPayable', 0, 500000) &&
+        data.joiningDate is string && data.joiningDate.size() >= 4 && data.joiningDate.size() <= 30 &&
+        data.stayDuration is string && data.stayDuration.size() >= 1 && data.stayDuration.size() <= 60 &&
+        data.agreementAccepted is bool && data.agreementAccepted == true &&
+        isOptionalString(data, 'agreementVersion', 40) &&
+        data.registrationDateIST is string && data.registrationDateIST.size() >= 6 && data.registrationDateIST.size() <= 30 &&
+        data.registrationTimeIST is string && data.registrationTimeIST.size() >= 4 && data.registrationTimeIST.size() <= 30 &&
+        isOptionalString(data, 'pdfGeneratedAtIST', 40) &&
+        isOptionalString(data, 'statusUpdatedAtIST', 40) &&
+        isOptionalString(data, 'signedDocUploadedAtIST', 40) &&
+        isOptionalString(data, 'updatedAtIST', 40) &&
+        isOptionalString(data, 'adminNotes', 600) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidRegistrationDocument(data) {
+      return data.keys().hasAll(['docType', 'userId', 'mimeType', 'dataUrl', 'createdAt']) &&
+        data.keys().hasOnly(['docType', 'userId', 'fileName', 'mimeType', 'dataUrl', 'createdAt']) &&
+        data.docType in ['photo', 'id_proof', 'signature', 'signed_document'] &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        isOptionalString(data, 'fileName', 180) &&
+        data.mimeType is string && data.mimeType.size() >= 3 && data.mimeType.size() <= 80 &&
+        data.dataUrl is string && data.dataUrl.size() >= 20 && data.dataUrl.size() <= 900000 &&
+        data.createdAt is timestamp;
+    }
+
+    // =========================================================================
+    // Public Hostel Showcase Collections (Public Read, Verified Admin Write)
+    // =========================================================================
+    match /rooms/{roomId} {
+      allow get: if isValidId(roomId);
+      allow list: if true;
+      allow create: if isSignedIn() &&
+        isValidId(roomId) &&
+        isValidRoom(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() &&
+        isValidId(roomId) &&
+        isValidRoom(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'roomNumber', 'roomType', 'size', 'maxGuests', 'availableBeds',
+          'price1', 'price2', 'price3', 'price4', 'extraPersonPrice',
+          'securityDeposit', 'advanceRent',
+          'facilities', 'status', 'description', 'imageUrl', 'photos', 'sortOrder',
+          'updatedAt', 'updatedBy'
+        ]) &&
+        isAdmin();
+      allow delete: if isSignedIn() && isValidId(roomId) && isAdmin();
+    }
+
+    match /facilities/{facilityId} {
+      allow get: if isValidId(facilityId);
+      allow list: if true;
+      allow create: if isSignedIn() &&
+        isValidId(facilityId) &&
+        isValidFacility(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() &&
+        isValidId(facilityId) &&
+        isValidFacility(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'icon', 'imageUrl', 'description', 'enabled', 'sortOrder', 'updatedAt', 'updatedBy'
+        ]) &&
+        isAdmin();
+      allow delete: if isSignedIn() && isValidId(facilityId) && isAdmin();
+    }
+
+    match /gallery/{imageId} {
+      allow get: if isValidId(imageId);
+      allow list: if true;
+      allow create: if isSignedIn() &&
+        isValidId(imageId) &&
+        isValidGalleryItem(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() &&
+        isValidId(imageId) &&
+        isValidGalleryItem(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'category', 'imageUrl', 'description', 'sortOrder', 'updatedAt', 'updatedBy'
+        ]) &&
+        isAdmin();
+      allow delete: if isSignedIn() && isValidId(imageId) && isAdmin();
+    }
+
+    match /rules/{ruleId} {
+      allow get: if isValidId(ruleId);
+      allow list: if true;
+      allow create: if isSignedIn() &&
+        isValidId(ruleId) &&
+        isValidRule(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() &&
+        isValidId(ruleId) &&
+        isValidRule(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'description', 'englishLabel', 'icon', 'variant', 'category', 'highlights',
+          'sortOrder', 'enabled', 'updatedAt', 'updatedBy'
+        ]) &&
+        isAdmin();
+      allow delete: if isSignedIn() && isValidId(ruleId) && isAdmin();
+    }
+
+    // Singleton Settings Documents
+    match /settings/general {
+      allow get: if true;
+      allow create: if isSignedIn() &&
+        isValidGeneralSettings(incoming()) &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() &&
+        isValidGeneralSettings(incoming()) &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'lodgeName', 'lodgeNameHindi', 'introGreeting', 'introSubtitle',
+          'welcomeBannerText', 'homeTagline', 'aboutLodge', 'monthlyStayInfo', 'heroImageUrl',
+          'logoUrl', 'dataRetentionPolicy',
+          'startingPrice', 'priceNote',
+          'defaultPrice1', 'defaultPrice2', 'defaultPrice3', 'defaultPrice4',
+          'defaultSecurityDeposit',
+          'checkInTime', 'checkOutTime', 'updatedAt', 'updatedBy'
+        ]) &&
+        isAdmin();
+      allow delete: if false;
+    }
+
+    match /settings/contact {
+      allow get: if true;
+      allow create: if isSignedIn() &&
+        isValidContactSettings(incoming()) &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() &&
+        isValidContactSettings(incoming()) &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'phone', 'whatsapp', 'email', 'otherInfo', 'updatedAt', 'updatedBy'
+        ]) &&
+        isAdmin();
+      allow delete: if false;
+    }
+
+    match /settings/location {
+      allow get: if true;
+      allow create: if isSignedIn() &&
+        isValidLocationSettings(incoming()) &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() &&
+        isValidLocationSettings(incoming()) &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'address', 'landmark', 'city', 'googleMapsUrl', 'updatedAt', 'updatedBy'
+        ]) &&
+        isAdmin();
+      allow delete: if false;
+    }
+
+    match /settings/parking {
+      allow get: if true;
+      allow create: if isSignedIn() &&
+        isValidParkingSettings(incoming()) &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() &&
+        isValidParkingSettings(incoming()) &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'available', 'headline', 'bikeParking', 'carParking',
+          'capacity', 'rules', 'extraCharge', 'imageUrl', 'updatedAt', 'updatedBy'
+        ]) &&
+        isAdmin();
+      allow delete: if false;
+    }
+
+    match /settings/rooftop {
+      allow get: if true;
+      allow create: if isSignedIn() &&
+        isValidRooftopSettings(incoming()) &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() &&
+        isValidRooftopSettings(incoming()) &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'available', 'headline', 'description', 'features', 'imageUrl', 'updatedAt', 'updatedBy'
+        ]) &&
+        isAdmin();
+      allow delete: if false;
+    }
+
+    match /owner/profile {
+      allow get: if true;
+      allow create: if isSignedIn() &&
+        isValidOwnerProfile(incoming()) &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() &&
+        isValidOwnerProfile(incoming()) &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'role', 'photoUrl', 'about', 'phone', 'whatsapp', 'email', 'address', 'updatedAt', 'updatedBy'
+        ]) &&
+        isAdmin();
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // Private PII & Admin Operations Collections
+    // =========================================================================
+    match /bookings/{bookingId} {
+      allow get: if isSignedIn() && isValidId(bookingId) && (
+        existing().userId == request.auth.uid || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow create: if isVerifiedUser() &&
+        isValidId(bookingId) &&
+        isValidBooking(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (incoming().userId == request.auth.uid && incoming().status == 'pending')
+        );
+      allow update: if isVerifiedUser() &&
+        isValidId(bookingId) &&
+        isValidBooking(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().userId == existing().userId &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'guestName', 'guestPhone', 'roomId', 'roomName', 'guestsCount',
+              'checkInDate', 'checkOutDate', 'totalAmount', 'status', 'notes', 'updatedAt'
+            ])
+          ) ||
+          (
+            existing().userId == request.auth.uid &&
+            existing().status in ['pending', 'confirmed'] &&
+            incoming().status == 'cancelled' &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+        );
+      allow delete: if isSignedIn() && isValidId(bookingId) && isAdmin();
+    }
+
+    // Student Stay Registrations:
+    // - Students (with or without login) can CREATE a new registration with status == 'submitted'.
+    // - Students CANNOT read other students' registrations, CANNOT modify/delete existing registrations,
+    //   and CANNOT read any private ID proof documents.
+    // - Verified Admin (GODRIKUOP@GMAIL.COM) has full access.
+    match /registrations/{registrationId} {
+      allow get: if isSignedIn() && isValidId(registrationId) && (
+        isAdmin() ||
+        (existing().userId == request.auth.uid && !existing().userId.matches('^guest_.*'))
+      );
+      allow list: if isSignedIn() && (
+        isAdmin() ||
+        resource.data.userId == request.auth.uid
+      );
+      allow create: if isValidId(registrationId) &&
+        isValidStayRegistration(incoming()) &&
+        !('parentAddress' in incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        incoming().status == 'submitted' &&
+        isValidSubmitterUserId(incoming().userId);
+      allow update: if isSignedIn() &&
+        isValidId(registrationId) &&
+        isValidStayRegistration(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().userId == existing().userId &&
+        incoming().registrationId == existing().registrationId &&
+        incoming().registrationDateIST == existing().registrationDateIST &&
+        incoming().registrationTimeIST == existing().registrationTimeIST &&
+        incoming().updatedAt == request.time &&
+        isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'status', 'assignedRoomNumber', 'adminNotes',
+          'photoStoragePath', 'signedDocFileName', 'signedDocMimeType', 'signedDocStoragePath',
+          'pdfGeneratedAtIST', 'statusUpdatedAtIST', 'signedDocUploadedAtIST', 'updatedAtIST',
+          'updatedAt'
+        ]);
+      allow delete: if isSignedIn() && isValidId(registrationId) && isAdmin();
+
+      // Private student photo & ID proof documents:
+      // - Created ONLY atomically during brand-new parent registration creation (!exists + existsAfter + getAfter)
+      //   OR by verified Admin on an existing registration.
+      // - Readable, updatable, and deletable ONLY by verified Admin (GODRIKUOP@GMAIL.COM).
+      match /documents/{docId} {
+        allow get: if isSignedIn() && isValidId(registrationId) && isValidId(docId) && isAdmin();
+        allow list: if isSignedIn() && isValidId(registrationId) && isAdmin();
+        allow create: if isValidId(registrationId) &&
+          isValidId(docId) &&
+          isValidRegistrationDocument(incoming()) &&
+          incoming().createdAt == request.time &&
+          (
+            (
+              docId in ['photo', 'id_proof'] &&
+              incoming().docType == docId &&
+              isValidSubmitterUserId(incoming().userId) &&
+              !exists(/databases/$(database)/documents/registrations/$(registrationId)) &&
+              existsAfter(/databases/$(database)/documents/registrations/$(registrationId)) &&
+              getAfter(/databases/$(database)/documents/registrations/$(registrationId)).data.userId == incoming().userId
+            ) ||
+            (
+              isAdmin() &&
+              exists(/databases/$(database)/documents/registrations/$(registrationId)) &&
+              incoming().userId == get(/databases/$(database)/documents/registrations/$(registrationId)).data.userId
+            )
+          );
+        allow update: if isSignedIn() &&
+          isValidId(registrationId) &&
+          isValidId(docId) &&
+          isValidRegistrationDocument(incoming()) &&
+          incoming().userId == existing().userId &&
+          isAdmin() &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'fileName', 'mimeType', 'dataUrl', 'createdAt'
+          ]);
+        allow delete: if isSignedIn() && isValidId(registrationId) && isValidId(docId) && isAdmin();
+      }
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (
+        request.auth.uid == userId || isAdmin()
+      );
+      allow list: if isAdmin();
+      allow create: if isVerifiedUser() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        isValidUserAccount(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        isValidUserAccount(incoming(), userId) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().uid == existing().uid &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'updatedAt']);
+      allow delete: if isSignedIn() && isValidId(userId) && isAdmin();
+    }
+
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && isValidId(adminId) && (
+        request.auth.uid == adminId || isAdmin()
+      );
+      allow list: if isAdmin();
+      allow create: if isSignedIn() &&
+        isValidId(adminId) &&
+        isValidAdminRecord(incoming()) &&
+        incoming().createdAt == request.time &&
+        isAdmin();
+      allow update: if false;
+      allow delete: if isSignedIn() && isValidId(adminId) && isAdmin();
+    }
+  }
+}
