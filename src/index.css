@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@layer base {
+  html {
+    font-family: 'Plus Jakarta Sans', 'Noto Sans Devanagari', system-ui, -apple-system, sans-serif;
+    background-color: #ffffff;
+    color: #1e293b;
+  }
+
+  body {
+    background-color: #ffffff;
+    color: #1e293b;
+    overflow-x: hidden;
+  }
+}
+
+/* Subtle lightweight animations for student hostel ambience */
+@keyframes gentle-float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes water-drop {
+  0% { transform: translateY(-3px) scale(0.95); opacity: 0.5; }
+  50% { transform: translateY(2px) scale(1.05); opacity: 1; }
+  100% { transform: translateY(-3px) scale(0.95); opacity: 0.5; }
+}
+
+@keyframes walk-sway {
+  0%, 100% { transform: translateX(0px) translateY(0px); }
+  25% { transform: translateX(4px) translateY(-2px); }
+  50% { transform: translateX(8px) translateY(0px); }
+  75% { transform: translateX(4px) translateY(-2px); }
+}
+
+@keyframes lamp-glow {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.06); }
+}
+
+.animate-gentle-float {
+  animation: gentle-float 4s ease-in-out infinite;
+}
+
+.animate-water-drop {
+  animation: water-drop 2.6s ease-in-out infinite;
+}
+
+.animate-walk-sway {
+  animation: walk-sway 5.5s ease-in-out infinite;
+}
+
+.animate-lamp-glow {
+  animation: lamp-glow 3.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-gentle-float,
+  .animate-water-drop,
+  .animate-walk-sway,
+  .animate-lamp-glow {
+    animation: none !important;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

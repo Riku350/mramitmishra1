@@ -1,0 +1,41 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Default deny all public access
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    function isVerifiedUser() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    // Single authorized admin email only
+    function isAdmin() {
+      return isVerifiedUser() &&
+        request.auth.token.email is string &&
+        request.auth.token.email.lower() == 'godrikuop@gmail.com';
+    }
+
+    // Private student registration documents (photo, ID proof, pen-signed document copy)
+    // Strictly isolated to the uploading student and the verified hostel admin
+    match /registrations/{userId}/{registrationId}/{fileName} {
+      allow read: if isVerifiedUser() && (request.auth.uid == userId || isAdmin());
+      allow write: if isVerifiedUser() &&
+        (request.auth.uid == userId || isAdmin()) &&
+        request.resource.size <= 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('^(image/(jpeg|jpg|png|webp)|application/pdf)$');
+    }
+
+    // Public hostel showcase images (rooms, facilities, gallery, homepage, admin profile)
+    // Readable by website visitors, writable ONLY by verified admin
+    match /public/{folder}/{fileName} {
+      allow read: if folder in ['rooms', 'facilities', 'gallery', 'hostel', 'owner'];
+      allow write: if isAdmin() &&
+        folder in ['rooms', 'facilities', 'gallery', 'hostel', 'owner'] &&
+        request.resource.size <= 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('^image/(jpeg|jpg|png|webp)$');
+    }
+  }
+}

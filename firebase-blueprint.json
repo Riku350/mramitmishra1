@@ -1,0 +1,395 @@
+{
+  "entities": {
+    "Room": {
+      "title": "Room",
+      "description": "A hostel room with monthly rent per sharing tier, capacity, available beds, multiple photos, facilities, and real-time status.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "roomNumber": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "roomType": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "size": { "type": "string", "maxLength": 60 },
+        "maxGuests": { "type": "number" },
+        "availableBeds": { "type": "number" },
+        "price1": { "type": "number" },
+        "price2": { "type": "number" },
+        "price3": { "type": "number" },
+        "price4": { "type": "number" },
+        "extraPersonPrice": { "type": "number" },
+        "securityDeposit": { "type": "number" },
+        "advanceRent": { "type": "number" },
+        "facilities": { "type": "array" },
+        "status": { "type": "string", "enum": ["available", "occupied", "maintenance", "cleaning"] },
+        "description": { "type": "string", "maxLength": 1200 },
+        "imageUrl": { "type": "string", "maxLength": 250000 },
+        "photos": { "type": "array" },
+        "sortOrder": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "required": ["name", "roomNumber", "roomType", "maxGuests", "status", "facilities", "createdAt", "updatedAt", "updatedBy"]
+    },
+    "Facility": {
+      "title": "Facility",
+      "description": "A hostel facility or amenity configurable by the admin with optional custom uploaded photo/icon.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "icon": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "imageUrl": { "type": "string", "maxLength": 250000 },
+        "description": { "type": "string", "maxLength": 500 },
+        "enabled": { "type": "boolean" },
+        "sortOrder": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "required": ["name", "icon", "enabled", "createdAt", "updatedAt", "updatedBy"]
+    },
+    "GalleryItem": {
+      "title": "GalleryItem",
+      "description": "A hostel photo belonging to a specific category with ordering support.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "category": { "type": "string", "enum": ["hostel", "lodge", "rooms", "bathroom", "parking", "rooftop", "study_area", "other", "surroundings", "owner"] },
+        "imageUrl": { "type": "string", "minLength": 1, "maxLength": 250000 },
+        "description": { "type": "string", "maxLength": 400 },
+        "sortOrder": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "required": ["title", "category", "imageUrl", "createdAt", "updatedAt", "updatedBy"]
+    },
+    "LodgeRule": {
+      "title": "LodgeRule",
+      "description": "A student-friendly hostel rule with clear English text, icon, optional highlight tags, and ordering.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "description": { "type": "string", "maxLength": 800 },
+        "englishLabel": { "type": "string", "maxLength": 140 },
+        "icon": { "type": "string", "maxLength": 40 },
+        "variant": { "type": "string", "enum": ["default", "important", "warning"] },
+        "category": { "type": "string", "maxLength": 60 },
+        "highlights": { "type": "array" },
+        "sortOrder": { "type": "number" },
+        "enabled": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "required": ["title", "enabled", "sortOrder", "createdAt", "updatedAt", "updatedBy"]
+    },
+    "GeneralSettings": {
+      "title": "GeneralSettings",
+      "description": "General branding, hero title/subtitle/image, about text, monthly stay info, default monthly rent structure, and check-in/out settings.",
+      "type": "object",
+      "properties": {
+        "lodgeName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "lodgeNameHindi": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "introGreeting": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "introSubtitle": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "welcomeBannerText": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "homeTagline": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "aboutLodge": { "type": "string", "maxLength": 2000 },
+        "monthlyStayInfo": { "type": "string", "maxLength": 1000 },
+        "heroImageUrl": { "type": "string", "maxLength": 250000 },
+        "logoUrl": { "type": "string", "maxLength": 250000 },
+        "dataRetentionPolicy": { "type": "string", "maxLength": 800 },
+        "startingPrice": { "type": "number" },
+        "priceNote": { "type": "string", "maxLength": 400 },
+        "defaultPrice1": { "type": "number" },
+        "defaultPrice2": { "type": "number" },
+        "defaultPrice3": { "type": "number" },
+        "defaultPrice4": { "type": "number" },
+        "defaultSecurityDeposit": { "type": "number" },
+        "checkInTime": { "type": "string", "maxLength": 120 },
+        "checkOutTime": { "type": "string", "maxLength": 120 },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "required": ["lodgeName", "lodgeNameHindi", "updatedAt", "updatedBy"]
+    },
+    "ContactSettings": {
+      "title": "ContactSettings",
+      "description": "Public business contact details for the hostel.",
+      "type": "object",
+      "properties": {
+        "phone": { "type": "string", "maxLength": 30 },
+        "whatsapp": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 120 },
+        "otherInfo": { "type": "string", "maxLength": 500 },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "required": ["updatedAt", "updatedBy"]
+    },
+    "LocationSettings": {
+      "title": "LocationSettings",
+      "description": "Public hostel address and Google Maps navigation link.",
+      "type": "object",
+      "properties": {
+        "address": { "type": "string", "maxLength": 500 },
+        "landmark": { "type": "string", "maxLength": 200 },
+        "city": { "type": "string", "maxLength": 100 },
+        "googleMapsUrl": { "type": "string", "maxLength": 1000 },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "required": ["updatedAt", "updatedBy"]
+    },
+    "ParkingSettings": {
+      "title": "ParkingSettings",
+      "description": "Parking availability, capacity, rules, and charges.",
+      "type": "object",
+      "properties": {
+        "available": { "type": "boolean" },
+        "headline": { "type": "string", "maxLength": 200 },
+        "bikeParking": { "type": "boolean" },
+        "carParking": { "type": "boolean" },
+        "capacity": { "type": "string", "maxLength": 120 },
+        "rules": { "type": "string", "maxLength": 800 },
+        "extraCharge": { "type": "string", "maxLength": 120 },
+        "imageUrl": { "type": "string", "maxLength": 250000 },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "required": ["available", "bikeParking", "carParking", "updatedAt", "updatedBy"]
+    },
+    "RooftopSettings": {
+      "title": "RooftopSettings",
+      "description": "Rooftop terrace description, features, and showcase photo.",
+      "type": "object",
+      "properties": {
+        "available": { "type": "boolean" },
+        "headline": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "features": { "type": "array" },
+        "imageUrl": { "type": "string", "maxLength": 250000 },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "required": ["available", "features", "updatedAt", "updatedBy"]
+    },
+    "OwnerProfile": {
+      "title": "OwnerProfile",
+      "description": "Public profile of the hostel admin/owner.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "role": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "photoUrl": { "type": "string", "maxLength": 250000 },
+        "about": { "type": "string", "maxLength": 1500 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "whatsapp": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 120 },
+        "address": { "type": "string", "maxLength": 500 },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "required": ["name", "role", "updatedAt", "updatedBy"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Private student room inquiry/booking record isolated to creator and admin.",
+      "type": "object",
+      "properties": {
+        "guestName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "guestPhone": { "type": "string", "maxLength": 25 },
+        "roomId": { "type": "string", "maxLength": 128 },
+        "roomName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "guestsCount": { "type": "number" },
+        "checkInDate": { "type": "string", "maxLength": 30 },
+        "checkOutDate": { "type": "string", "maxLength": 30 },
+        "totalAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "checked_in", "completed", "cancelled"] },
+        "notes": { "type": "string", "maxLength": 500 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["guestName", "roomName", "guestsCount", "status", "userId", "createdAt", "updatedAt"]
+    },
+    "StayRegistration": {
+      "title": "StayRegistration",
+      "description": "Private monthly student hostel stay registration containing student info, parent details (without parent address), room selection, Hindi agreement acceptance, IST audit timestamps, signed copy metadata, and admin status.",
+      "type": "object",
+      "properties": {
+        "registrationId": { "type": "string", "minLength": 4, "maxLength": 40 },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "status": {
+          "type": "string",
+          "enum": [
+            "submitted",
+            "pdf_generated",
+            "printed",
+            "signed_copy_received",
+            "pending",
+            "approved",
+            "rejected",
+            "room_assigned",
+            "active",
+            "completed"
+          ]
+        },
+        "fullName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "dateOfBirth": { "type": "string", "minLength": 4, "maxLength": 30 },
+        "gender": { "type": "string", "minLength": 1, "maxLength": 30 },
+        "mobile": { "type": "string", "minLength": 8, "maxLength": 25 },
+        "email": { "type": "string", "maxLength": 120 },
+        "addressHouse": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "addressPostOffice": { "type": "string", "maxLength": 120 },
+        "addressDistrict": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "addressState": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "addressPin": { "type": "string", "minLength": 4, "maxLength": 15 },
+        "fatherName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "motherName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "parentMobile": { "type": "string", "minLength": 8, "maxLength": 25 },
+        "emergencyContact": { "type": "string", "maxLength": 30 },
+        "emergencyRelation": { "type": "string", "maxLength": 60 },
+        "idProofType": { "type": "string", "enum": ["Aadhaar Card", "Other Valid ID"] },
+        "idProofFileName": { "type": "string", "maxLength": 180 },
+        "idProofMimeType": { "type": "string", "maxLength": 80 },
+        "idProofStoragePath": { "type": "string", "maxLength": 400 },
+        "photoStoragePath": { "type": "string", "maxLength": 400 },
+        "signatureStoragePath": { "type": "string", "maxLength": 400 },
+        "signedDocFileName": { "type": "string", "maxLength": 180 },
+        "signedDocMimeType": { "type": "string", "maxLength": 80 },
+        "signedDocStoragePath": { "type": "string", "maxLength": 400 },
+        "storageBackend": { "type": "string", "enum": ["firebase_storage", "firestore_private"] },
+        "roomPreference": { "type": "string", "enum": ["Single", "Double", "Triple"] },
+        "selectedRoomId": { "type": "string", "maxLength": 128 },
+        "selectedRoomName": { "type": "string", "maxLength": 120 },
+        "assignedRoomNumber": { "type": "string", "maxLength": 40 },
+        "monthlyRent": { "type": "number" },
+        "securityDeposit": { "type": "number" },
+        "advanceRent": { "type": "number" },
+        "totalPayable": { "type": "number" },
+        "joiningDate": { "type": "string", "minLength": 4, "maxLength": 30 },
+        "stayDuration": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "agreementAccepted": { "type": "boolean" },
+        "agreementVersion": { "type": "string", "maxLength": 40 },
+        "registrationDateIST": { "type": "string", "minLength": 6, "maxLength": 30 },
+        "registrationTimeIST": { "type": "string", "minLength": 4, "maxLength": 30 },
+        "pdfGeneratedAtIST": { "type": "string", "maxLength": 40 },
+        "statusUpdatedAtIST": { "type": "string", "maxLength": 40 },
+        "signedDocUploadedAtIST": { "type": "string", "maxLength": 40 },
+        "updatedAtIST": { "type": "string", "maxLength": 40 },
+        "adminNotes": { "type": "string", "maxLength": 600 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "registrationId", "userId", "status", "fullName", "dateOfBirth", "gender", "mobile",
+        "addressHouse", "addressDistrict", "addressState", "addressPin",
+        "fatherName", "motherName", "parentMobile",
+        "idProofType", "roomPreference", "joiningDate", "stayDuration",
+        "agreementAccepted", "registrationDateIST", "registrationTimeIST",
+        "createdAt", "updatedAt"
+      ]
+    },
+    "RegistrationDocument": {
+      "title": "RegistrationDocument",
+      "description": "Private student document payload (cropped photo, ID proof, or uploaded pen-signed registration copy) stored securely under a registration and isolated strictly to owner and verified admin.",
+      "type": "object",
+      "properties": {
+        "docType": { "type": "string", "enum": ["photo", "id_proof", "signature", "signed_document"] },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "fileName": { "type": "string", "maxLength": 180 },
+        "mimeType": { "type": "string", "maxLength": 80 },
+        "dataUrl": { "type": "string", "maxLength": 900000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["docType", "userId", "mimeType", "dataUrl", "createdAt"]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Private user account metadata strictly isolated to self or admin.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "createdAt", "updatedAt"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted admin record bound strictly to the single authorized admin email.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "addedBy": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "addedBy", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/Room" },
+      "description": "Publicly readable room catalog with monthly rent details, photos, and live availability; writable only by verified admin."
+    },
+    "/facilities/{facilityId}": {
+      "schema": { "$ref": "#/entities/Facility" },
+      "description": "Publicly readable hostel facilities list with icons/images; writable only by verified admin."
+    },
+    "/gallery/{imageId}": {
+      "schema": { "$ref": "#/entities/GalleryItem" },
+      "description": "Publicly readable photo gallery categorized by area; writable only by verified admin."
+    },
+    "/rules/{ruleId}": {
+      "schema": { "$ref": "#/entities/LodgeRule" },
+      "description": "Publicly readable student hostel rules; writable only by verified admin."
+    },
+    "/settings/general": {
+      "schema": { "$ref": "#/entities/GeneralSettings" },
+      "description": "General hostel branding, hero image, welcome copy, monthly stay info, and monthly pricing defaults."
+    },
+    "/settings/contact": {
+      "schema": { "$ref": "#/entities/ContactSettings" },
+      "description": "Public hostel business contact details."
+    },
+    "/settings/location": {
+      "schema": { "$ref": "#/entities/LocationSettings" },
+      "description": "Public hostel address and Google Maps link."
+    },
+    "/settings/parking": {
+      "schema": { "$ref": "#/entities/ParkingSettings" },
+      "description": "Hostel parking configuration."
+    },
+    "/settings/rooftop": {
+      "schema": { "$ref": "#/entities/RooftopSettings" },
+      "description": "Hostel rooftop details."
+    },
+    "/owner/profile": {
+      "schema": { "$ref": "#/entities/OwnerProfile" },
+      "description": "Hostel owner/admin profile."
+    },
+    "/bookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/Booking" },
+      "description": "Private student room inquiry records isolated to creator and verified admin."
+    },
+    "/registrations/{registrationId}": {
+      "schema": { "$ref": "#/entities/StayRegistration" },
+      "description": "Private monthly stay registration records strictly isolated to the submitting student and verified admin."
+    },
+    "/registrations/{registrationId}/documents/{docId}": {
+      "schema": { "$ref": "#/entities/RegistrationDocument" },
+      "description": "Private student uploaded assets (cropped photo, ID proof, signed registration document) strictly isolated to owner and verified admin."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Private user account records strictly isolated to owner or verified admin."
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Trusted admin allowlist records managed exclusively by the verified authorized admin."
+    }
+  }
+}

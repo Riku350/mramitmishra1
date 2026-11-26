@@ -1,0 +1,6 @@
+{
+  "name": "AMIT BHAIYA LAWAJ",
+  "description": "अमित भैया लॉज — अमित मिश्रा द्वारा संचालित आरामदायक, साफ-सुथरे और सुरक्षित ठहरने का संपूर्ण डिजिटल ऐप। कमरे, किराया, सुविधाएं, पार्किंग, छत का दृश्य, गैलरी और रीयल-टाइम एडमिन प्रबंधन।",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
