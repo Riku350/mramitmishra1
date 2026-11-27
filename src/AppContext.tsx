@@ -22,8 +22,8 @@ import {
   serverTimestamp,
   query,
   orderBy,
-  where,
   writeBatch,
+  runTransaction,
 } from 'firebase/firestore';
 import { ref as storageRef, uploadString, getBytes, getDownloadURL } from 'firebase/storage';
 import { HOSTEL_ASSETS, STANDARD_17_RULES, LEGACY_RULE_IDS, RuleVariant } from './data/hostelRules';
@@ -59,6 +59,99 @@ function inferMimeTypeFromDataUrl(dataUrl: string, fallbackName = ''): string {
   if (lower.endsWith('.png')) return 'image/png';
   if (lower.endsWith('.webp')) return 'image/webp';
   return 'image/jpeg';
+}
+
+export function normalizeMobileLast10(raw: string): string {
+  const digits = (raw || '').replace(/\D/g, '');
+  if (digits.length >= 10) return digits.slice(-10);
+  return digits;
+}
+
+// Pure-JS SHA-256 fallback in case SubtleCrypto is unavailable in non-HTTPS contexts
+function sha256FallbackHex(ascii: string): string {
+  const rightRotate = (value: number, amount: number) =>
+    (value >>> amount) | (value << (32 - amount));
+  const maxWord = Math.pow(2, 32);
+  let result = '';
+  const words: number[] = [];
+  const asciiBitLength = ascii.length * 8;
+  const hash: number[] = [];
+  const k: number[] = [];
+  let primeCounter = 0;
+  const isComposite: Record<number, number> = {};
+  for (let candidate = 2; primeCounter < 64; candidate++) {
+    if (!isComposite[candidate]) {
+      for (let i = 0; i < 313; i += candidate) isComposite[i] = candidate;
+      hash[primeCounter] = (Math.pow(candidate, 0.5) * maxWord) | 0;
+      k[primeCounter++] = (Math.pow(candidate, 1 / 3) * maxWord) | 0;
+    }
+  }
+  ascii += '\x80';
+  while ((ascii.length % 64) - 56) ascii += '\x00';
+  for (let i = 0; i < ascii.length; i++) {
+    const j = ascii.charCodeAt(i);
+    words[i >> 2] |= j << (((3 - i) % 4) * 8);
+  }
+  words[words.length] = (asciiBitLength / maxWord) | 0;
+  words[words.length] = asciiBitLength;
+  for (let j = 0; j < words.length; ) {
+    const w = words.slice(j, (j += 16));
+    const oldHash = hash.slice(0);
+    for (let i = 0; i < 64; i++) {
+      const w15 = w[i - 15];
+      const w2 = w[i - 2];
+      const a = hash[0];
+      const e = hash[4];
+      const temp1 =
+        hash[7] +
+        (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) +
+        ((e & hash[5]) ^ (~e & hash[6])) +
+        k[i] +
+        (w[i] =
+          i < 16
+            ? w[i]
+            : (w[i - 16] +
+                (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) +
+                w[i - 7] +
+                (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))) |
+              0);
+      const temp2 =
+        (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) +
+        ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+      hash.unshift((temp1 + temp2) | 0);
+      hash[4] = (hash[4] + temp1) | 0;
+      hash.pop();
+    }
+    for (let i = 0; i < 8; i++) hash[i] = (hash[i] + oldHash[i]) | 0;
+  }
+  for (let i = 0; i < 8; i++) {
+    for (let j = 3; j + 1; j--) {
+      const b = (hash[i] >> (j * 8)) & 255;
+      result += (b < 16 ? '0' : '') + b.toString(16);
+    }
+  }
+  return result;
+}
+
+export async function computeRegistrationLookupKey(
+  registrationNumber: string,
+  mobile: string
+): Promise<string> {
+  const normalizedReg = (registrationNumber || '').trim().toUpperCase();
+  const normalizedMobile = normalizeMobileLast10(mobile);
+  const input = `ABL-LOOKUP-V1::${normalizedReg}::${normalizedMobile}`;
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    try {
+      const data = new TextEncoder().encode(input);
+      const digest = await crypto.subtle.digest('SHA-256', data);
+      return Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+    } catch {
+      // Fall through to pure-JS SHA-256
+    }
+  }
+  return sha256FallbackHex(input);
 }
 
 export class RegistrationSubmitError extends Error {
@@ -125,6 +218,7 @@ export type GalleryCategory =
   | 'parking'
   | 'rooftop'
   | 'study_area'
+  | 'facilities'
   | 'other'
   | 'surroundings'
   | 'owner';
@@ -250,6 +344,7 @@ export interface StayRegistration {
   id: string;
   registrationId: string;
   userId: string;
+  lookupKey?: string;
   status: RegistrationStatus;
   fullName: string;
   gender: string;
@@ -336,6 +431,39 @@ export interface RegistrationAssets {
   signedDocFileName: string | null;
 }
 
+export interface RegistrationLookupRecord {
+  registrationId: string;
+  registrationDocId: string;
+  status: RegistrationStatus;
+  fullName: string;
+  gender: string;
+  mobile: string;
+  addressHouse: string;
+  addressPostOffice?: string;
+  addressDistrict: string;
+  addressState: string;
+  addressPin: string;
+  fatherName: string;
+  motherName: string;
+  parentMobile: string;
+  emergencyContact?: string;
+  emergencyRelation?: string;
+  idProofType: 'Aadhaar Card' | 'Other Valid ID';
+  idProofFileName?: string;
+  roomPreference: 'Single' | 'Double' | 'Triple';
+  selectedRoomName?: string;
+  assignedRoomNumber?: string;
+  monthlyRent: number | null;
+  securityDeposit: number | null;
+  advanceRent: number | null;
+  totalPayable: number | null;
+  joiningDate: string;
+  stayDuration: string;
+  registrationDateIST: string;
+  registrationTimeIST: string;
+  photoDataUrl?: string;
+}
+
 export interface ToastMessage {
   id: number;
   type: 'success' | 'error' | 'info';
@@ -347,11 +475,12 @@ export type AppTab =
   | 'rules'
   | 'rooms'
   | 'rent'
+  | 'gallery'
   | 'facilities'
   | 'study'
   | 'register'
+  | 'find_registration'
   | 'contact'
-  | 'profile'
   | 'admin'
   | 'privacy'
   | 'terms'
@@ -363,15 +492,19 @@ const PATH_TO_TAB: Record<string, AppTab> = {
   '/home': 'home',
   '/rooms': 'rooms',
   '/rent': 'rent',
+  '/gallery': 'gallery',
+  '/photos': 'gallery',
   '/facilities': 'facilities',
   '/rules': 'rules',
   '/hostel-rules': 'rules',
   '/register': 'register',
   '/stay-registration': 'register',
+  '/find-registration': 'find_registration',
+  '/find': 'find_registration',
   '/study': 'study',
   '/contact': 'contact',
   '/contact-us': 'contact',
-  '/profile': 'profile',
+  '/profile': 'find_registration',
   '/admin': 'admin',
   '/admin-login': 'admin',
   '/privacy': 'privacy',
@@ -386,12 +519,13 @@ const TAB_TO_PATH: Record<AppTab, string> = {
   home: '/',
   rooms: '/rooms',
   rent: '/rooms',
+  gallery: '/gallery',
   facilities: '/facilities',
   rules: '/rules',
   register: '/register',
+  find_registration: '/find-registration',
   study: '/study',
   contact: '/contact',
-  profile: '/profile',
   admin: '/admin',
   privacy: '/privacy-policy',
   terms: '/terms',
@@ -436,7 +570,6 @@ interface AppContextType {
   dataError: string | null;
   toast: ToastMessage | null;
   showToast: (text: string, type?: ToastMessage['type']) => void;
-  signInWithGoogle: () => Promise<User | null>;
   loginAdminWithEmailPassword: (email: string, password: string) => Promise<AuthActionResult>;
   loginAdminWithGoogle: () => Promise<AuthActionResult>;
   resendAdminVerificationEmail: () => Promise<boolean>;
@@ -469,18 +602,19 @@ interface AppContextType {
   updateParkingSettings: (data: Partial<ParkingSettings>) => Promise<void>;
   updateRooftopSettings: (data: Partial<RooftopSettings>) => Promise<void>;
   updateOwnerProfile: (data: Partial<OwnerProfile>) => Promise<void>;
-  createBooking: (data: Omit<Booking, 'id' | 'createdAt' | 'userId'>) => Promise<void>;
   updateBookingStatus: (id: string, status: Booking['status']) => Promise<void>;
-  submitStayRegistration: (
-    input: NewStayRegistrationInput,
-    overrideUser?: User | null
-  ) => Promise<StayRegistration>;
+  submitStayRegistration: (input: NewStayRegistrationInput) => Promise<StayRegistration>;
+  findRegistrationByNumberAndMobile: (
+    registrationNumber: string,
+    mobile: string
+  ) => Promise<RegistrationLookupRecord | null>;
   markRegistrationPdfGenerated: (regId: string) => Promise<void>;
   loadRegistrationAssets: (reg: StayRegistration) => Promise<RegistrationAssets>;
   updateRegistrationAdmin: (
     id: string,
     updates: { status: RegistrationStatus; assignedRoomNumber?: string; adminNotes?: string }
   ) => Promise<void>;
+  deleteRegistrationAdmin: (reg: StayRegistration) => Promise<void>;
   uploadSignedRegistrationDocument: (
     reg: StayRegistration,
     file: { dataUrl: string; fileName: string; mimeType: string }
@@ -491,10 +625,10 @@ interface AppContextType {
 const defaultGeneral: GeneralSettings = {
   lodgeName: BRAND_NAME,
   lodgeNameHindi: 'अमित भैया लॉज',
-  introGreeting: BRAND_NAME,
+  introGreeting: `Welcome to ${BRAND_NAME}`,
   introSubtitle: 'Safe Stay. Better Study. Better Future.',
   welcomeBannerText:
-    'Comfortable monthly accommodation for students in a peaceful and student-friendly environment.',
+    'A safe, peaceful and comfortable place for students to stay, study and grow.',
   homeTagline: 'Focus on your studies while we take care of a clean, peaceful stay.',
   aboutLodge:
     'Managed by Amit Mishra, Amit Bhaiya Lawaj provides clean, disciplined, and study-friendly monthly accommodation for students.',
@@ -813,20 +947,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [authLoading]);
 
-  // Protected Bookings & Registrations listeners (owner or verified admin ONLY)
+  // Protected Admin-only Bookings & Registrations listeners (strictly GODRIKUOP@GMAIL.COM)
   useEffect(() => {
-    if (authLoading || !user) {
+    if (authLoading || !user || !isAdmin) {
       setBookings([]);
       setRegistrations([]);
       return;
     }
 
-    const bookingsRef = isAdmin
-      ? collection(db, 'bookings')
-      : query(collection(db, 'bookings'), where('userId', '==', user.uid));
-
     const unsubBookings = onSnapshot(
-      bookingsRef,
+      collection(db, 'bookings'),
       (snapshot) => {
         setBookings(snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Booking)));
       },
@@ -839,12 +969,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
-    const regsRef = isAdmin
-      ? collection(db, 'registrations')
-      : query(collection(db, 'registrations'), where('userId', '==', user.uid));
-
     const unsubRegs = onSnapshot(
-      regsRef,
+      collection(db, 'registrations'),
       (snapshot) => {
         const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as StayRegistration));
         list.sort((a, b) => {
@@ -877,42 +1003,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const rules: LodgeRule[] =
     hasFirestoreRules && !isOnlyLegacySeededRules ? firestoreRules : STANDARD_17_RULES;
 
-  const syncUserAccountDoc = async (u: User) => {
+  const syncAdminAccountDoc = async (u: User) => {
     try {
-      if (!u.emailVerified) return;
+      if (!isAuthorizedAdminUser(u)) return;
       const userDocRef = doc(db, 'users', u.uid);
       const existingSnap = await getDoc(userDocRef);
       if (existingSnap.exists()) {
         await updateDoc(userDocRef, {
-          displayName: (u.displayName || 'Student').slice(0, 120),
+          displayName: (u.displayName || 'Admin').slice(0, 120),
           email: (u.email || '').slice(0, 120),
           updatedAt: serverTimestamp(),
         });
       } else {
         await setDoc(userDocRef, {
           uid: u.uid,
-          displayName: (u.displayName || 'Student').slice(0, 120),
+          displayName: (u.displayName || 'Admin').slice(0, 120),
           email: (u.email || '').slice(0, 120),
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
       }
     } catch {
-      // Non-blocking account sync
-    }
-  };
-
-  const signInWithGoogle = async (): Promise<User | null> => {
-    try {
-      const provider = new GoogleAuthProvider();
-      const res = await signInWithPopup(auth, provider);
-      const u = res.user;
-      await syncUserAccountDoc(u);
-      showToast('Signed in successfully.', 'success');
-      return u;
-    } catch {
-      showToast('Sign in failed. Please try again.', 'error');
-      return null;
+      // Non-blocking admin metadata sync
     }
   };
 
@@ -949,7 +1061,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       setUser(u);
       setIsAdmin(true);
-      await syncUserAccountDoc(u);
+      await syncAdminAccountDoc(u);
       showToast('Welcome, Admin!', 'success');
       return { ok: true, message: 'Signed in as Admin.' };
     } catch (err: unknown) {
@@ -997,7 +1109,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       setUser(u);
       setIsAdmin(isAuthorizedAdminUser(u));
-      await syncUserAccountDoc(u);
+      await syncAdminAccountDoc(u);
       showToast('Welcome, Admin!', 'success');
       return { ok: true, message: 'Signed in as Admin.' };
     } catch {
@@ -1594,34 +1706,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const createBooking = async (data: Omit<Booking, 'id' | 'createdAt' | 'userId'>) => {
-    if (!user) {
-      showToast('Please sign in first to send a room inquiry.', 'info');
-      return;
-    }
-    try {
-      await addDoc(collection(db, 'bookings'), {
-        guestName: data.guestName.trim().slice(0, 100),
-        guestPhone: (data.guestPhone || '').trim().slice(0, 25),
-        roomId: (data.roomId || '').slice(0, 128),
-        roomName: data.roomName.trim().slice(0, 120),
-        guestsCount: Math.min(20, Math.max(1, Number(data.guestsCount) || 1)),
-        checkInDate: (data.checkInDate || '').slice(0, 30),
-        checkOutDate: (data.checkOutDate || '').slice(0, 30),
-        totalAmount: data.totalAmount ?? null,
-        status: 'pending',
-        notes: (data.notes || '').trim().slice(0, 500),
-        userId: user.uid,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      showToast('Room inquiry submitted.', 'success');
-    } catch (error) {
-      showToast('Unable to submit room inquiry.', 'error');
-      handleFirestoreError(error, OperationType.CREATE, 'bookings');
-    }
-  };
-
   const updateBookingStatus = async (id: string, status: Booking['status']) => {
     try {
       await updateDoc(doc(db, 'bookings', id), {
@@ -1636,17 +1720,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   /**
-   * Monthly Stay Registration Submission (ROOT-CAUSE FIXED):
-   * - Students can submit WITHOUT mandatory sign-in (seamless guest session ID or signed-in UID).
+   * Monthly Stay Registration Submission (NO STUDENT LOGIN REQUIRED):
+   * - Zero dependency on Firebase Auth / user accounts.
+   * - Atomically allocates a unique sequential Registration Number (ABL-YYYY-0001, ABL-YYYY-0002, ...).
    * - NO dateOfBirth, NO email, NO parentAddress stored.
-   * - Zero undefined/NaN values ever sent to Firestore.
-   * - Validates and safely sizes photo & ID proof before commit.
-   * - Commits parent registration + private photo + private ID proof in ONE atomic writeBatch.
-   * - Surfaces simple, student-friendly error messages while logging full structured context to console.
+   * - Omits empty optional strings so Firestore rules evaluate far below expression limits.
+   * - Commits parent registration + private photo + private ID proof + SHA-256 Find My Registration lookup
+   *   in ONE atomic writeBatch (ID proof is NEVER placed in the lookup doc).
    */
   const submitStayRegistration = async (
-    input: NewStayRegistrationInput,
-    overrideUser?: User | null
+    input: NewStayRegistrationInput
   ): Promise<StayRegistration> => {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       const msg = 'Internet connection check karke try again.';
@@ -1654,9 +1737,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       throw new RegistrationSubmitError('network', msg);
     }
 
-    const activeUid = overrideUser?.uid || auth.currentUser?.uid || null;
     const randomToken = `${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 6)}`;
-    const uid = activeUid || `guest_${Date.now().toString(36)}_${randomToken}`;
+    const uid = `guest_${Date.now().toString(36)}_${randomToken}`;
 
     // Validate & optimize Student Photo safely
     let finalPhotoDataUrl = (input.photoDataUrl || '').trim();
@@ -1665,12 +1747,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       showToast(msg, 'error');
       throw new RegistrationSubmitError('photo', msg);
     }
-    if (finalPhotoDataUrl.length > 480000) {
+    if (finalPhotoDataUrl.length > 360000) {
       try {
         const recompressed = await optimizeImageFile(finalPhotoDataUrl, {
-          maxDimension: 600,
-          quality: 0.78,
-          maxChars: 380000,
+          maxDimension: 560,
+          quality: 0.76,
+          maxChars: 320000,
           preferJpeg: true,
         });
         finalPhotoDataUrl = recompressed.dataUrl;
@@ -1727,70 +1809,147 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     const { dateIST, timeIST, fullIST } = getCurrentISTDateTime();
-    const rand = Math.floor(1000 + Math.random() * 9000);
-    const yearPart = dateIST.split('/')[2] || String(new Date().getFullYear());
-    const registrationId = `SH-${yearPart}-${rand}`;
-    const docId = `${registrationId}-${Date.now().toString(36)}`;
+    const yearNum = Number(dateIST.split('/')[2]) || new Date().getFullYear();
+    const safeYear = yearNum >= 2024 && yearNum <= 2100 ? yearNum : 2026;
+    const counterId = `registrations_${safeYear}`;
 
+    // Step 1: Atomically allocate next sequential Registration Number (ABL-YYYY-0001, ABL-YYYY-0002, ...)
+    let nextSequence = 1;
+    try {
+      const counterRef = doc(db, 'counters', counterId);
+      nextSequence = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(counterRef);
+        if (!snap.exists()) {
+          tx.set(counterRef, {
+            year: safeYear,
+            lastNumber: 1,
+            updatedAt: serverTimestamp(),
+          });
+          return 1;
+        }
+        const current = Number((snap.data() as { lastNumber?: number }).lastNumber || 0);
+        const nextVal = Math.max(1, Math.floor(current) + 1);
+        tx.update(counterRef, {
+          lastNumber: nextVal,
+          updatedAt: serverTimestamp(),
+        });
+        return nextVal;
+      });
+    } catch (error) {
+      try {
+        handleFirestoreError(error, OperationType.WRITE, `counters/${counterId}`);
+      } catch {
+        // Logged cleanly
+      }
+      const rawMsg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+      if (rawMsg.includes('offline') || rawMsg.includes('network') || rawMsg.includes('unavailable')) {
+        const msg = 'Internet connection check karke try again.';
+        showToast(msg, 'error');
+        throw new RegistrationSubmitError('network', msg);
+      }
+      const msg = 'Registration save nahi ho paaya. Please try again.';
+      showToast(msg, 'error');
+      throw new RegistrationSubmitError('save', msg);
+    }
+
+    const registrationId = `ABL-${safeYear}-${String(nextSequence).padStart(4, '0')}`;
+    const docId = registrationId;
+    const lookupKey = await computeRegistrationLookupKey(registrationId, input.mobile);
     const safeFileName = (input.idProofFileName || 'id_proof').trim().slice(0, 180) || 'id_proof';
 
-    // Strict zero-undefined registration document (NO dateOfBirth, NO email, NO parentAddress)
-    const regRecord = {
+    // Build lean registration record (omit empty optional strings for fast rules evaluation)
+    const postOffice = (input.addressPostOffice || '').trim().slice(0, 120);
+    const emergencyContact = (input.emergencyContact || '').trim().slice(0, 30);
+    const emergencyRelation = (input.emergencyRelation || '').trim().slice(0, 60);
+    const selectedRoomId = (input.selectedRoomId || '').trim().slice(0, 128);
+    const selectedRoomName = (input.selectedRoomName || '').trim().slice(0, 120);
+    const monthlyRent = sanitizeNumberInRange(input.monthlyRent, 0, 100000);
+    const securityDeposit = sanitizeNumberInRange(input.securityDeposit, 0, 100000);
+    const advanceRent = sanitizeNumberInRange(input.advanceRent, 0, 100000);
+    const totalPayable = sanitizeNumberInRange(input.totalPayable, 0, 500000);
+
+    const regRecord: Record<string, unknown> = {
       registrationId,
       userId: uid,
+      lookupKey,
       status: 'submitted' as RegistrationStatus,
       fullName: (input.fullName || '').trim().slice(0, 120),
       gender: (input.gender || 'Male').trim().slice(0, 30),
       mobile: (input.mobile || '').trim().slice(0, 25),
       addressHouse: (input.addressHouse || '').trim().slice(0, 200),
-      addressPostOffice: (input.addressPostOffice || '').trim().slice(0, 120),
+      ...(postOffice ? { addressPostOffice: postOffice } : {}),
       addressDistrict: (input.addressDistrict || '').trim().slice(0, 100),
       addressState: (input.addressState || '').trim().slice(0, 100),
       addressPin: (input.addressPin || '').trim().slice(0, 15),
       fatherName: (input.fatherName || '').trim().slice(0, 120),
       motherName: (input.motherName || '').trim().slice(0, 120),
       parentMobile: (input.parentMobile || '').trim().slice(0, 25),
-      emergencyContact: (input.emergencyContact || '').trim().slice(0, 30),
-      emergencyRelation: (input.emergencyRelation || '').trim().slice(0, 60),
+      ...(emergencyContact ? { emergencyContact } : {}),
+      ...(emergencyRelation ? { emergencyRelation } : {}),
       idProofType: input.idProofType,
       idProofFileName: safeFileName,
       idProofMimeType: finalIdMime.slice(0, 80),
-      idProofStoragePath: '',
-      photoStoragePath: '',
-      signatureStoragePath: '',
-      signedDocFileName: '',
-      signedDocMimeType: '',
-      signedDocStoragePath: '',
       storageBackend: 'firestore_private' as const,
       roomPreference: input.roomPreference,
-      selectedRoomId: (input.selectedRoomId || '').trim().slice(0, 128),
-      selectedRoomName: (input.selectedRoomName || '').trim().slice(0, 120),
-      assignedRoomNumber: '',
-      monthlyRent: sanitizeNumberInRange(input.monthlyRent, 0, 100000),
-      securityDeposit: sanitizeNumberInRange(input.securityDeposit, 0, 100000),
-      advanceRent: sanitizeNumberInRange(input.advanceRent, 0, 100000),
-      totalPayable: sanitizeNumberInRange(input.totalPayable, 0, 500000),
+      ...(selectedRoomId ? { selectedRoomId } : {}),
+      ...(selectedRoomName ? { selectedRoomName } : {}),
+      monthlyRent,
+      securityDeposit,
+      advanceRent,
+      totalPayable,
       joiningDate: (input.joiningDate || '').trim().slice(0, 30),
       stayDuration: (input.stayDuration || 'Monthly Stay').trim().slice(0, 60) || 'Monthly Stay',
       agreementAccepted: true,
       agreementVersion: 'v2-hindi-print-sign',
       registrationDateIST: dateIST,
       registrationTimeIST: timeIST,
-      pdfGeneratedAtIST: '',
       statusUpdatedAtIST: fullIST,
-      signedDocUploadedAtIST: '',
       updatedAtIST: fullIST,
-      adminNotes: '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+
+    // Build login-free lookup record (strictly NO ID proof data stored here)
+    const lookupRecord: Record<string, unknown> = {
+      registrationId,
+      registrationDocId: docId,
+      status: 'submitted' as RegistrationStatus,
+      fullName: regRecord.fullName,
+      gender: regRecord.gender,
+      mobile: regRecord.mobile,
+      addressHouse: regRecord.addressHouse,
+      ...(postOffice ? { addressPostOffice: postOffice } : {}),
+      addressDistrict: regRecord.addressDistrict,
+      addressState: regRecord.addressState,
+      addressPin: regRecord.addressPin,
+      fatherName: regRecord.fatherName,
+      motherName: regRecord.motherName,
+      parentMobile: regRecord.parentMobile,
+      ...(emergencyContact ? { emergencyContact } : {}),
+      ...(emergencyRelation ? { emergencyRelation } : {}),
+      idProofType: input.idProofType,
+      idProofFileName: safeFileName,
+      roomPreference: input.roomPreference,
+      ...(selectedRoomName ? { selectedRoomName } : {}),
+      monthlyRent,
+      securityDeposit,
+      advanceRent,
+      totalPayable,
+      joiningDate: regRecord.joiningDate,
+      stayDuration: regRecord.stayDuration,
+      registrationDateIST: dateIST,
+      registrationTimeIST: timeIST,
+      ...(finalPhotoDataUrl.length <= 390000 ? { photoDataUrl: finalPhotoDataUrl } : {}),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
 
     try {
-      // Single atomic Firestore batch: registration + private photo + private ID proof together
       const batch = writeBatch(db);
       const regDocRef = doc(db, 'registrations', docId);
       const photoDocRef = doc(db, 'registrations', docId, 'documents', 'photo');
       const idProofDocRef = doc(db, 'registrations', docId, 'documents', 'id_proof');
+      const lookupDocRef = doc(db, 'registration_lookups', lookupKey);
 
       batch.set(regDocRef, regRecord);
       batch.set(photoDocRef, {
@@ -1809,20 +1968,57 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dataUrl: finalIdDataUrl,
         createdAt: serverTimestamp(),
       });
+      batch.set(lookupDocRef, lookupRecord);
 
       await batch.commit();
 
       showToast('Registration submitted successfully.', 'success');
       return {
         id: docId,
-        ...regRecord,
+        registrationId,
+        userId: uid,
+        lookupKey,
+        status: 'submitted',
+        fullName: String(regRecord.fullName),
+        gender: String(regRecord.gender),
+        mobile: String(regRecord.mobile),
+        addressHouse: String(regRecord.addressHouse),
+        addressPostOffice: postOffice,
+        addressDistrict: String(regRecord.addressDistrict),
+        addressState: String(regRecord.addressState),
+        addressPin: String(regRecord.addressPin),
+        fatherName: String(regRecord.fatherName),
+        motherName: String(regRecord.motherName),
+        parentMobile: String(regRecord.parentMobile),
+        emergencyContact,
+        emergencyRelation,
+        idProofType: input.idProofType,
+        idProofFileName: safeFileName,
+        idProofMimeType: finalIdMime.slice(0, 80),
+        storageBackend: 'firestore_private',
+        roomPreference: input.roomPreference,
+        selectedRoomId,
+        selectedRoomName,
+        assignedRoomNumber: '',
+        monthlyRent,
+        securityDeposit,
+        advanceRent,
+        totalPayable,
+        joiningDate: String(regRecord.joiningDate),
+        stayDuration: String(regRecord.stayDuration),
+        agreementAccepted: true,
+        agreementVersion: 'v2-hindi-print-sign',
+        registrationDateIST: dateIST,
+        registrationTimeIST: timeIST,
+        statusUpdatedAtIST: fullIST,
+        updatedAtIST: fullIST,
+        createdAt: null,
       };
     } catch (error) {
-      // Log rich diagnostic context via handleFirestoreError without exposing raw technical strings to the student
       try {
         handleFirestoreError(error, OperationType.CREATE, `registrations/${docId}`);
       } catch {
-        // Already logged to console.error with full FirestoreErrorInfo JSON
+        // Logged cleanly to console
       }
 
       const rawMsg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
@@ -1839,17 +2035,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         throw new RegistrationSubmitError('network', msg);
       }
 
-      if (rawCode.includes('auth/') || rawMsg.includes('token-expired') || rawMsg.includes('unauthenticated')) {
-        const msg = 'Please login again and try.';
-        showToast(msg, 'error');
-        throw new RegistrationSubmitError('auth', msg);
-      }
-
       const msg = 'Registration save nahi ho paaya. Please try again.';
       showToast(msg, 'error');
       throw new RegistrationSubmitError('save', msg);
     }
   };
+
+  /**
+   * Login-free "Find My Registration" lookup using exact Registration Number + 10-digit Mobile Number.
+   */
+  const findRegistrationByNumberAndMobile = useCallback(
+    async (registrationNumber: string, mobile: string): Promise<RegistrationLookupRecord | null> => {
+      const normalizedReg = registrationNumber.trim().toUpperCase();
+      const normalizedMobile = normalizeMobileLast10(mobile);
+      if (!normalizedReg || normalizedMobile.length !== 10) return null;
+
+      try {
+        const lookupKey = await computeRegistrationLookupKey(normalizedReg, normalizedMobile);
+        const snap = await getDoc(doc(db, 'registration_lookups', lookupKey));
+        if (!snap.exists()) return null;
+        return snap.data() as RegistrationLookupRecord;
+      } catch {
+        return null;
+      }
+    },
+    []
+  );
 
   const markRegistrationPdfGenerated = async (regId: string) => {
     // Only authorized admin modifies existing registration records (students cannot mutate existing records)
@@ -1950,18 +2161,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   ) => {
     try {
       const { fullIST } = getCurrentISTDateTime();
+      const assignedRoom = (updates.assignedRoomNumber || '').trim().slice(0, 40);
       await updateDoc(doc(db, 'registrations', id), {
         status: updates.status,
-        assignedRoomNumber: (updates.assignedRoomNumber || '').trim().slice(0, 40),
+        assignedRoomNumber: assignedRoom,
         adminNotes: (updates.adminNotes || '').trim().slice(0, 600),
         statusUpdatedAtIST: fullIST,
         updatedAtIST: fullIST,
         updatedAt: serverTimestamp(),
       });
+
+      // Keep student Find My Registration lookup in sync
+      const target = registrations.find((r) => r.id === id);
+      if (target?.lookupKey) {
+        try {
+          await updateDoc(doc(db, 'registration_lookups', target.lookupKey), {
+            status: updates.status,
+            assignedRoomNumber: assignedRoom,
+            updatedAt: serverTimestamp(),
+          });
+        } catch {
+          // Non-blocking lookup sync
+        }
+      }
+
       showToast('Registration updated successfully.', 'success');
     } catch (error) {
       showToast('Unable to update registration.', 'error');
       handleFirestoreError(error, OperationType.UPDATE, `registrations/${id}`);
+    }
+  };
+
+  const deleteRegistrationAdmin = async (reg: StayRegistration) => {
+    try {
+      const docsSnap = await getDocs(collection(db, 'registrations', reg.id, 'documents'));
+      const batch = writeBatch(db);
+      docsSnap.forEach((d) => batch.delete(d.ref));
+      batch.delete(doc(db, 'registrations', reg.id));
+      if (reg.lookupKey) {
+        batch.delete(doc(db, 'registration_lookups', reg.lookupKey));
+      }
+      await batch.commit();
+      showToast('Registration deleted.', 'info');
+    } catch (error) {
+      showToast('Unable to delete registration.', 'error');
+      handleFirestoreError(error, OperationType.DELETE, `registrations/${reg.id}`);
     }
   };
 
@@ -1973,7 +2217,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const { fullIST } = getCurrentISTDateTime();
       const ext = file.mimeType === 'application/pdf' ? 'pdf' : 'jpg';
-      const storagePath = `registrations/${reg.userId}/${reg.id}/signed_document.${ext}`;
+      const storagePath = `registrations/${reg.id}/signed_document.${ext}`;
       let savedInStorage = false;
 
       try {
@@ -2005,6 +2249,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updatedAt: serverTimestamp(),
       });
 
+      if (reg.lookupKey) {
+        try {
+          await updateDoc(doc(db, 'registration_lookups', reg.lookupKey), {
+            status: 'signed_copy_received',
+            updatedAt: serverTimestamp(),
+          });
+        } catch {
+          // Non-blocking sync
+        }
+      }
+
       showToast('Signed document uploaded successfully.', 'success');
     } catch (error) {
       showToast('Unable to upload signed document.', 'error');
@@ -2016,7 +2271,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const replaceRegistrationStudentPhoto = async (reg: StayRegistration, dataUrl: string) => {
     try {
       const { fullIST } = getCurrentISTDateTime();
-      const photoPath = `registrations/${reg.userId}/${reg.id}/photo_${Date.now()}.jpg`;
+      const photoPath = `registrations/${reg.id}/photo_${Date.now()}.jpg`;
       let savedInStorage = false;
 
       try {
@@ -2042,6 +2297,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updatedAtIST: fullIST,
         updatedAt: serverTimestamp(),
       });
+
+      if (reg.lookupKey && dataUrl.length <= 390000) {
+        try {
+          await updateDoc(doc(db, 'registration_lookups', reg.lookupKey), {
+            photoDataUrl: dataUrl,
+            updatedAt: serverTimestamp(),
+          });
+        } catch {
+          // Non-blocking sync
+        }
+      }
 
       showToast('Photo uploaded successfully.', 'success');
     } catch (error) {
@@ -2079,7 +2345,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dataError,
         toast,
         showToast,
-        signInWithGoogle,
         loginAdminWithEmailPassword,
         loginAdminWithGoogle,
         resendAdminVerificationEmail,
@@ -2108,12 +2373,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updateParkingSettings,
         updateRooftopSettings,
         updateOwnerProfile,
-        createBooking,
         updateBookingStatus,
         submitStayRegistration,
+        findRegistrationByNumberAndMobile,
         markRegistrationPdfGenerated,
         loadRegistrationAssets,
         updateRegistrationAdmin,
+        deleteRegistrationAdmin,
         uploadSignedRegistrationDocument,
         replaceRegistrationStudentPhoto,
       }}

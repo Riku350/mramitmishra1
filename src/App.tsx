@@ -7,9 +7,7 @@ import {
   Sparkles,
   BookOpen,
   Phone,
-  User as UserIcon,
   ShieldCheck,
-  LogIn,
   LogOut,
   ArrowRight,
   Share2,
@@ -29,16 +27,17 @@ import {
   Copy,
   Check,
   ClipboardEdit,
-  Download,
-  Loader2,
-  Printer,
+  Image as ImageIcon,
+  Search,
 } from 'lucide-react';
-import { useApp, AppTab, Room, GeneralSettings, StayRegistration } from './AppContext';
+import { useApp, AppTab, Room, GeneralSettings } from './AppContext';
 import { HOSTEL_ASSETS } from './data/hostelRules';
 import { WelcomeScreen, StudentLifeStrip } from './components/StudentScenes';
 import { RulesView, CleaningScheduleModal } from './components/RulesView';
 import { StudyView } from './components/StudyView';
 import { StayRegistrationView } from './components/StayRegistrationView';
+import { GalleryView } from './components/GalleryView';
+import { FindRegistrationView } from './components/FindRegistrationView';
 import { AdminPanel } from './components/AdminPanel';
 import {
   PrivacyPolicyView,
@@ -47,7 +46,6 @@ import {
   AppErrorView,
 } from './components/LegalPages';
 import { FaqSection, FaqPageView } from './components/FaqSection';
-import { generateRegistrationPdf } from './utils/registrationPdf';
 
 class ErrorBoundary extends Component<
   { children: React.ReactNode },
@@ -149,18 +147,18 @@ function HomeView() {
       action: () => setActiveTab('rooms'),
     },
     {
-      title: 'Hostel Facilities',
-      subtitle: 'Clean Rooms, Study & Parking',
-      icon: Sparkles,
+      title: 'Photo Gallery',
+      subtitle: 'Building, Rooms & Study Spaces',
+      icon: ImageIcon,
       tint: 'bg-emerald-50 text-emerald-600',
-      action: () => setActiveTab('facilities'),
+      action: () => setActiveTab('gallery'),
     },
     {
-      title: 'Peaceful Study',
-      subtitle: 'Calm Academic Environment',
-      icon: BookOpen,
+      title: 'Hostel Facilities',
+      subtitle: 'Clean Rooms, Parking & Rooftop',
+      icon: Sparkles,
       tint: 'bg-sky-50 text-sky-600',
-      action: () => setActiveTab('study'),
+      action: () => setActiveTab('facilities'),
     },
     {
       title: 'Online Registration',
@@ -171,6 +169,13 @@ function HomeView() {
     },
   ];
 
+  const brandName = generalSettings.lodgeName || 'Amit Bhaiya Lawaj';
+  const heroHeading =
+    generalSettings.introGreeting &&
+    generalSettings.introGreeting.toLowerCase().includes('welcome')
+      ? generalSettings.introGreeting
+      : `Welcome to ${brandName}`;
+
   return (
     <div className="space-y-8">
       {/* Hero Section */}
@@ -179,17 +184,14 @@ function HomeView() {
           <div className="lg:col-span-6 p-6 sm:p-8 lg:p-10 space-y-5">
             <div className="space-y-2.5">
               <p className="text-xs font-semibold text-emerald-700 tracking-wide">
-                Monthly Student Accommodation · {generalSettings.lodgeName || 'Amit Bhaiya Lawaj'}
+                Monthly Student Accommodation · {brandName}
               </p>
               <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight leading-tight">
-                🏠 {generalSettings.introGreeting || 'Amit Bhaiya Lawaj'}
+                {heroHeading} 🏠
               </h1>
-              <p className="text-lg sm:text-xl font-semibold text-blue-700">
-                {generalSettings.introSubtitle || 'Safe Stay. Better Study. Better Future.'}
-              </p>
               <p className="text-sm sm:text-base text-slate-600 leading-relaxed max-w-lg">
                 {generalSettings.welcomeBannerText ||
-                  'Comfortable monthly accommodation for students in a peaceful and student-friendly environment.'}
+                  'A safe, peaceful and comfortable place for students to stay, study and grow.'}
               </p>
             </div>
 
@@ -197,25 +199,39 @@ function HomeView() {
             <div className="flex flex-wrap items-center gap-3 pt-1">
               <button
                 type="button"
-                onClick={() => openRegistrationForRoom()}
+                onClick={() => setActiveTab('rooms')}
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+              >
+                <BedDouble className="w-4 h-4" />
+                <span>Explore Rooms</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('gallery')}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-800 text-sm font-semibold hover:bg-slate-50 transition-colors"
+              >
+                <ImageIcon className="w-4 h-4 text-blue-600" />
+                <span>View Gallery</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => openRegistrationForRoom()}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors"
               >
                 <ClipboardEdit className="w-4 h-4" />
                 <span>Register for Stay</span>
               </button>
+            </div>
+
+            <div className="pt-1">
               <button
                 type="button"
-                onClick={() => setActiveTab('rooms')}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-800 text-sm font-semibold hover:bg-slate-50 transition-colors"
+                onClick={() => setActiveTab('find_registration')}
+                className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-blue-700 hover:text-blue-900"
               >
-                <span>View Rooms</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('rules')}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-800 text-sm font-semibold hover:bg-slate-50 transition-colors"
-              >
-                <span>View Hostel Rules</span>
+                <Search className="w-3.5 h-3.5" />
+                <span>Already registered? Find My Registration</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -862,18 +878,18 @@ function FacilitiesView() {
   );
 }
 
-/* =========================== CONTACT & GALLERY VIEW =========================== */
+/* =========================== CONTACT VIEW =========================== */
 function ContactView() {
-  const { generalSettings, ownerProfile, contactSettings, locationSettings, gallery } = useApp();
-  const [galleryFilter, setGalleryFilter] = useState<string>('all');
+  const { generalSettings, ownerProfile, contactSettings, locationSettings, gallery, setActiveTab } =
+    useApp();
 
   const phone = contactSettings.phone || ownerProfile.phone;
   const whatsappRaw = contactSettings.whatsapp || ownerProfile.whatsapp || phone;
   const whatsapp = whatsappRaw.replace(/[^0-9]/g, '');
   const contactEmail = contactSettings.email || ownerProfile.email;
 
-  const galleryItems = useMemo(() => {
-    if (gallery.length > 0) return gallery;
+  const previewPhotos = useMemo(() => {
+    if (gallery.length > 0) return gallery.slice(0, 4);
     return [
       { id: 'g-1', title: 'Hostel Building', category: 'hostel' as const, imageUrl: HOSTEL_ASSETS.lodgeExterior },
       { id: 'g-2', title: 'Student Room', category: 'rooms' as const, imageUrl: HOSTEL_ASSETS.roomPreview },
@@ -881,14 +897,6 @@ function ContactView() {
       { id: 'g-4', title: 'Rooftop Terrace', category: 'rooftop' as const, imageUrl: HOSTEL_ASSETS.rooftopView },
     ];
   }, [gallery]);
-
-  const filteredGallery =
-    galleryFilter === 'all'
-      ? galleryItems
-      : galleryItems.filter((g) => {
-          if (galleryFilter === 'hostel') return g.category === 'hostel' || g.category === 'lodge';
-          return g.category === galleryFilter;
-        });
 
   return (
     <div className="space-y-8">
@@ -1015,42 +1023,33 @@ function ContactView() {
       {/* Frequently Asked Questions */}
       <FaqSection compact />
 
-      {/* Photo Gallery */}
+      {/* Photo Gallery Preview */}
       <section className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-xl font-bold text-slate-900">Hostel Gallery</h2>
-          <div className="flex flex-wrap gap-2">
-            {[
-              { id: 'all', label: 'All' },
-              { id: 'hostel', label: 'Hostel' },
-              { id: 'rooms', label: 'Rooms' },
-              { id: 'bathroom', label: 'Bathroom' },
-              { id: 'parking', label: 'Parking' },
-              { id: 'rooftop', label: 'Rooftop' },
-              { id: 'study_area', label: 'Study Area' },
-              { id: 'other', label: 'Other' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setGalleryFilter(tab.id)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
-                  galleryFilter === tab.id
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">Hostel Photo Gallery</h2>
+            <p className="text-xs sm:text-sm text-slate-500">
+              Preview photos of our building, rooms, parking, and rooftop.
+            </p>
           </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('gallery')}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs sm:text-sm font-semibold transition-colors"
+          >
+            <ImageIcon className="w-4 h-4" />
+            <span>Open Full Gallery</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {filteredGallery.map((item) => (
-            <figure
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {previewPhotos.map((item) => (
+            <button
               key={item.id}
-              className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden"
+              type="button"
+              onClick={() => setActiveTab('gallery')}
+              className="text-left bg-white border border-slate-200/80 rounded-2xl overflow-hidden hover:border-blue-200 hover:shadow-sm transition-all"
             >
               <img
                 src={item.imageUrl}
@@ -1058,10 +1057,10 @@ function ContactView() {
                 className="w-full aspect-[4/3] object-cover"
                 referrerPolicy="no-referrer"
               />
-              <figcaption className="px-4 py-3 text-sm font-medium text-slate-800">
+              <p className="px-3.5 py-2.5 text-xs sm:text-sm font-medium text-slate-800 truncate">
                 {item.title}
-              </figcaption>
-            </figure>
+              </p>
+            </button>
           ))}
         </div>
       </section>
@@ -1069,294 +1068,9 @@ function ContactView() {
   );
 }
 
-/* =========================== PROFILE & MY REGISTRATIONS VIEW =========================== */
-function ProfileView() {
-  const {
-    user,
-    isAdmin,
-    registrations,
-    generalSettings,
-    signInWithGoogle,
-    logout,
-    setActiveTab,
-    openRegistrationForRoom,
-    loadRegistrationAssets,
-    showToast,
-  } = useApp();
-
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
-
-  const handleDownloadOrPrintMyPdf = async (reg: StayRegistration, mode: 'download' | 'print') => {
-    setDownloadingId(reg.id);
-    try {
-      const assets = await loadRegistrationAssets(reg);
-      const generated = await generateRegistrationPdf({
-        registrationId: reg.registrationId,
-        registrationDateIST: reg.registrationDateIST,
-        registrationTimeIST: reg.registrationTimeIST,
-        hostelName: generalSettings.lodgeName || 'Amit Bhaiya Lawaj',
-        hostelSubName: generalSettings.lodgeNameHindi,
-        fullName: reg.fullName,
-        gender: reg.gender,
-        mobile: reg.mobile,
-        addressHouse: reg.addressHouse,
-        addressPostOffice: reg.addressPostOffice,
-        addressDistrict: reg.addressDistrict,
-        addressState: reg.addressState,
-        addressPin: reg.addressPin,
-        fatherName: reg.fatherName,
-        motherName: reg.motherName,
-        parentMobile: reg.parentMobile,
-        emergencyContact: reg.emergencyContact,
-        emergencyRelation: reg.emergencyRelation,
-        roomPreference: reg.roomPreference,
-        selectedRoomName: reg.selectedRoomName,
-        assignedRoomNumber: reg.assignedRoomNumber,
-        monthlyRent: reg.monthlyRent,
-        securityDeposit: reg.securityDeposit,
-        advanceRent: reg.advanceRent,
-        totalPayable: reg.totalPayable,
-        joiningDate: reg.joiningDate,
-        stayDuration: reg.stayDuration,
-        idProofType: reg.idProofType,
-        idProofFileName: reg.idProofFileName,
-        idProofMimeType: reg.idProofMimeType,
-        idProofDataUrl: assets.idProofDataUrl,
-        photoDataUrl: assets.photoDataUrl,
-      });
-
-      if (mode === 'print') {
-        const iframe = document.createElement('iframe');
-        iframe.style.position = 'fixed';
-        iframe.style.width = '0';
-        iframe.style.height = '0';
-        iframe.style.border = '0';
-        iframe.src = generated.blobUrl;
-        document.body.appendChild(iframe);
-        iframe.onload = () => {
-          try {
-            iframe.contentWindow?.focus();
-            iframe.contentWindow?.print();
-          } catch {
-            // fallback
-          }
-          window.setTimeout(() => {
-            if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
-            URL.revokeObjectURL(generated.blobUrl);
-          }, 60000);
-        };
-      } else {
-        const link = document.createElement('a');
-        link.href = generated.blobUrl;
-        link.download = generated.fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.setTimeout(() => URL.revokeObjectURL(generated.blobUrl), 30000);
-      }
-    } catch {
-      showToast('Unable to generate PDF right now. Please try again.', 'error');
-    } finally {
-      setDownloadingId(null);
-    }
-  };
-
-  return (
-    <div className="space-y-6 max-w-3xl">
-      <div className="space-y-1.5">
-        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
-          Student Account &amp; Registrations
-        </h1>
-        <p className="text-sm text-slate-600">
-          View your submitted monthly stay registrations, download or print your PDF, or access
-          hostel links.
-        </p>
-      </div>
-
-      {/* Account Card */}
-      <section className="bg-white border border-slate-200/80 rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        {user ? (
-          <>
-            <div className="flex items-center gap-3.5 min-w-0">
-              {user.photoURL ? (
-                <img
-                  src={user.photoURL}
-                  alt={user.displayName || 'User'}
-                  className="w-12 h-12 rounded-2xl object-cover border border-slate-200"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-700 font-bold flex items-center justify-center">
-                  {(user.displayName || 'S').slice(0, 1)}
-                </div>
-              )}
-              <div className="min-w-0">
-                <p className="text-base font-bold text-slate-900 truncate">
-                  {user.displayName || 'Hostel Student'}
-                </p>
-                <p className="text-xs text-slate-500 truncate">
-                  {user.email} {isAdmin ? '· Authorized Admin' : ''}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setActiveTab('admin')}
-                className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
-              >
-                {isAdmin ? 'Open Admin Panel' : 'Admin Login'}
-              </button>
-              <button
-                type="button"
-                onClick={logout}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>Sign Out</span>
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div>
-              <h2 className="text-base font-bold text-slate-900">Sign In with Google</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Sign in to submit your stay registration and download your print-ready PDF anytime.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={signInWithGoogle}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700"
-              >
-                <LogIn className="w-4 h-4" />
-                <span>Student Sign In</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('admin')}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50"
-              >
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                <span>Admin Login</span>
-              </button>
-            </div>
-          </>
-        )}
-      </section>
-
-      {/* Quick Links */}
-      <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {[
-          { tab: 'facilities' as AppTab, label: 'Facilities', desc: 'Rooms, parking & rooftop', icon: Sparkles },
-          { tab: 'study' as AppTab, label: 'Study Corner', desc: 'Focus timer & routine', icon: BookOpen },
-          { tab: 'contact' as AppTab, label: 'Contact & Photos', desc: 'Management & location', icon: Phone },
-        ].map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.tab}
-              type="button"
-              onClick={() => setActiveTab(item.tab)}
-              className="text-left bg-white border border-slate-200/80 rounded-2xl p-4 hover:border-blue-200 flex items-center gap-3.5"
-            >
-              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-                <Icon className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-slate-900">{item.label}</p>
-                <p className="text-xs text-slate-500">{item.desc}</p>
-              </div>
-            </button>
-          );
-        })}
-      </section>
-
-      {/* Student's Submitted Monthly Stay Registrations */}
-      {user && (
-        <section className="bg-white border border-slate-200/80 rounded-2xl p-6 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-base font-bold text-slate-900">My Stay Registrations</h2>
-            <button
-              type="button"
-              onClick={() => openRegistrationForRoom()}
-              className="text-xs font-semibold text-blue-600 hover:text-blue-800"
-            >
-              + New Registration
-            </button>
-          </div>
-          {registrations.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              You have not submitted a monthly stay registration yet.
-            </p>
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {registrations.map((reg) => (
-                <div
-                  key={reg.id}
-                  className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                >
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-bold text-slate-900">
-                      <span className="text-blue-700 tabular-nums">{reg.registrationId}</span> ·{' '}
-                      {reg.roomPreference} Sharing
-                      {reg.assignedRoomNumber ? ` (Room #${reg.assignedRoomNumber})` : ''}
-                    </p>
-                    <p className="text-xs text-slate-500 tabular-nums">
-                      Joining: {reg.joiningDate} · Submitted {reg.registrationDateIST} (
-                      {reg.registrationTimeIST})
-                    </p>
-                    <p className="text-xs font-semibold text-emerald-700 capitalize">
-                      Status: {reg.status.replace(/_/g, ' ')}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 self-start sm:self-auto">
-                    <button
-                      type="button"
-                      disabled={downloadingId === reg.id}
-                      onClick={() => handleDownloadOrPrintMyPdf(reg, 'print')}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      <Printer className="w-3.5 h-3.5 text-slate-600" />
-                      <span>Print</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={downloadingId === reg.id}
-                      onClick={() => handleDownloadOrPrintMyPdf(reg, 'download')}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      {downloadingId === reg.id ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>Preparing...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Download className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Download PDF</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-    </div>
-  );
-}
-
 /* =========================== MAIN APP SHELL =========================== */
 function HostelAppShell() {
   const {
-    user,
     isAdmin,
     showIntro,
     setShowIntro,
@@ -1367,7 +1081,6 @@ function HostelAppShell() {
     ownerProfile,
     dataError,
     toast,
-    signInWithGoogle,
     logout,
   } = useApp();
 
@@ -1379,12 +1092,13 @@ function HostelAppShell() {
       home: `${baseName} — Monthly Stay Registration`,
       rooms: `Rooms & Monthly Rent | ${baseName}`,
       rent: `Rooms & Monthly Rent | ${baseName}`,
+      gallery: `Photo Gallery | ${baseName}`,
       facilities: `Hostel Facilities | ${baseName}`,
       rules: `Hostel Rules | ${baseName}`,
       register: `Stay Registration | ${baseName}`,
+      find_registration: `Find My Registration | ${baseName}`,
       study: `Study Corner | ${baseName}`,
       contact: `Contact Us | ${baseName}`,
-      profile: `My Registrations | ${baseName}`,
       admin: `Admin Panel | ${baseName}`,
       privacy: `Privacy Policy | ${baseName}`,
       terms: `Terms & Conditions | ${baseName}`,
@@ -1423,9 +1137,11 @@ function HostelAppShell() {
   }[] = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'rooms', label: 'Rooms & Rent', icon: BedDouble },
-    { id: 'facilities', label: 'Facilities', icon: Sparkles },
+    { id: 'gallery', label: 'Gallery', icon: ImageIcon },
     { id: 'rules', label: 'Hostel Rules', icon: ScrollText },
     { id: 'register', label: 'Stay Registration', icon: ClipboardEdit },
+    { id: 'find_registration', label: 'Find My Registration', icon: Search },
+    { id: 'facilities', label: 'Facilities', icon: Sparkles },
     { id: 'study', label: 'Study Corner', icon: BookOpen },
     { id: 'contact', label: 'Contact', icon: Phone },
   ];
@@ -1438,8 +1154,8 @@ function HostelAppShell() {
     { id: 'home', label: 'Home', icon: Home },
     { id: 'rooms', label: 'Rooms', icon: BedDouble },
     { id: 'rules', label: 'Rules', icon: ScrollText },
+    { id: 'gallery', label: 'Gallery', icon: ImageIcon },
     { id: 'register', label: 'Register', icon: ClipboardEdit },
-    { id: 'profile', label: 'Profile', icon: UserIcon },
   ];
 
   const handleSelectTab = (tab: AppTab) => {
@@ -1529,44 +1245,48 @@ function HostelAppShell() {
           </div>
         </nav>
 
-        {/* Sidebar Auth Footer */}
+        {/* Sidebar Contact / Admin Status Footer (No Student Login) */}
         <div className="p-4 border-t border-slate-100">
-          {user ? (
+          {isAdmin ? (
             <div className="flex items-center justify-between gap-2">
               <button
                 type="button"
-                onClick={() => handleSelectTab('profile')}
+                onClick={() => handleSelectTab('admin')}
                 className="flex items-center gap-2.5 min-w-0 text-left"
               >
-                <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-700 text-xs font-bold flex items-center justify-center shrink-0">
-                  {(user.displayName || user.email || 'S').slice(0, 1).toUpperCase()}
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-bold flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-4 h-4" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold text-slate-900 truncate">
-                    {user.displayName || 'Student'}
-                  </p>
-                  <p className="text-[11px] text-slate-500 truncate">
-                    {isAdmin ? 'Authorized Admin' : 'My Registrations'}
-                  </p>
+                  <p className="text-xs font-semibold text-slate-900 truncate">Admin Panel</p>
+                  <p className="text-[11px] text-emerald-700 truncate">Authorized Admin</p>
                 </div>
               </button>
               <button
                 type="button"
                 onClick={logout}
-                aria-label="Sign out"
+                aria-label="Admin sign out"
                 className="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 flex items-center justify-center shrink-0"
               >
                 <LogOut className="w-3.5 h-3.5" />
               </button>
             </div>
+          ) : footerPhone ? (
+            <a
+              href={`tel:${footerPhone}`}
+              className="w-full inline-flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-blue-50 border border-blue-100 text-sm font-semibold text-blue-700 hover:bg-blue-100 transition-colors"
+            >
+              <Phone className="w-4 h-4" />
+              <span className="truncate">Call {footerPhone}</span>
+            </a>
           ) : (
             <button
               type="button"
-              onClick={signInWithGoogle}
+              onClick={() => handleSelectTab('contact')}
               className="w-full inline-flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-100 transition-colors"
             >
-              <LogIn className="w-4 h-4 text-blue-600" />
-              <span>Student Sign In</span>
+              <Phone className="w-4 h-4 text-blue-600" />
+              <span>Contact Hostel</span>
             </button>
           )}
         </div>
@@ -1630,12 +1350,13 @@ function HostelAppShell() {
               {activeTab === 'home' && <HomeView />}
               {activeTab === 'rooms' && <RoomsView />}
               {activeTab === 'rent' && <RoomsView />}
+              {activeTab === 'gallery' && <GalleryView />}
               {activeTab === 'facilities' && <FacilitiesView />}
               {activeTab === 'rules' && <RulesView />}
               {activeTab === 'register' && <StayRegistrationView />}
+              {activeTab === 'find_registration' && <FindRegistrationView />}
               {activeTab === 'study' && <StudyView />}
               {activeTab === 'contact' && <ContactView />}
-              {activeTab === 'profile' && <ProfileView />}
               {activeTab === 'admin' && <AdminPanel />}
               {activeTab === 'privacy' && <PrivacyPolicyView />}
               {activeTab === 'terms' && <TermsConditionsView />}
@@ -1673,6 +1394,24 @@ function HostelAppShell() {
                 aria-label="Legal and support links"
                 className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs sm:text-sm font-medium text-slate-600"
               >
+                <button
+                  type="button"
+                  onClick={() => handleSelectTab('gallery')}
+                  className={`hover:text-blue-600 transition-colors ${
+                    activeTab === 'gallery' ? 'text-blue-600 font-semibold' : ''
+                  }`}
+                >
+                  Gallery
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectTab('find_registration')}
+                  className={`hover:text-blue-600 transition-colors ${
+                    activeTab === 'find_registration' ? 'text-blue-600 font-semibold' : ''
+                  }`}
+                >
+                  Find My Registration
+                </button>
                 <button
                   type="button"
                   onClick={() => handleSelectTab('faqs')}

@@ -81,13 +81,14 @@ const STATUS_OPTIONS: Array<{ value: RegistrationStatus; label: string; color: s
 ];
 
 const GALLERY_CATEGORIES: Array<{ value: GalleryCategory; label: string }> = [
-  { value: 'hostel', label: 'Hostel' },
+  { value: 'hostel', label: 'Hostel Building' },
   { value: 'rooms', label: 'Rooms' },
-  { value: 'bathroom', label: 'Bathroom' },
+  { value: 'study_area', label: 'Study Area' },
   { value: 'parking', label: 'Parking' },
   { value: 'rooftop', label: 'Rooftop' },
-  { value: 'study_area', label: 'Study Area' },
-  { value: 'other', label: 'Other' },
+  { value: 'facilities', label: 'Facilities' },
+  { value: 'bathroom', label: 'Bathroom' },
+  { value: 'other', label: 'Other Photos' },
 ];
 
 function getStatusMeta(status: RegistrationStatus) {
@@ -190,6 +191,7 @@ export function AdminPanel() {
     updateOwnerProfile,
     loadRegistrationAssets,
     updateRegistrationAdmin,
+    deleteRegistrationAdmin,
     markRegistrationPdfGenerated,
     uploadSignedRegistrationDocument,
     replaceRegistrationStudentPhoto,
@@ -209,6 +211,8 @@ export function AdminPanel() {
   const [editAssignedRoom, setEditAssignedRoom] = useState('');
   const [editAdminNotes, setEditAdminNotes] = useState('');
   const [savingReg, setSavingReg] = useState(false);
+  const [confirmDeleteRegId, setConfirmDeleteRegId] = useState<string | null>(null);
+  const [deletingReg, setDeletingReg] = useState(false);
   const [uploadingSignedDoc, setUploadingSignedDoc] = useState(false);
   const [replacingPhoto, setReplacingPhoto] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
@@ -472,6 +476,7 @@ export function AdminPanel() {
   // ==================== REGISTRATION HANDLERS ====================
   const openRegistrationModal = async (reg: StayRegistration) => {
     setSelectedRegId(reg.id);
+    setConfirmDeleteRegId(null);
     setEditRegStatus(reg.status);
     setEditAssignedRoom(reg.assignedRoomNumber || '');
     setEditAdminNotes(reg.adminNotes || '');
@@ -484,6 +489,18 @@ export function AdminPanel() {
       showToast('Could not load student documents.', 'error');
     } finally {
       setLoadingAssets(false);
+    }
+  };
+
+  const handleDeleteRegistration = async () => {
+    if (!selectedReg) return;
+    setDeletingReg(true);
+    try {
+      await deleteRegistrationAdmin(selectedReg);
+      setConfirmDeleteRegId(null);
+      setSelectedRegId(null);
+    } finally {
+      setDeletingReg(false);
     }
   };
 
@@ -3126,6 +3143,46 @@ export function AdminPanel() {
                     value={selectedReg.signedDocUploadedAtIST || 'Not uploaded yet'}
                   />
                 </div>
+              </div>
+
+              {/* Danger Zone: Permanently Delete Registration & Private Documents */}
+              <div className="rounded-2xl border border-red-200/80 bg-red-50/40 p-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs">
+                  <p className="font-bold text-red-900">Delete Registration Record</p>
+                  <p className="text-red-700/80 mt-0.5">
+                    Permanently removes this registration, its private ID proof/photo, and lookup record.
+                  </p>
+                </div>
+                {confirmDeleteRegId === selectedReg.id ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={deletingReg}
+                      onClick={handleDeleteRegistration}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold disabled:opacity-60"
+                    >
+                      {deletingReg && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>{deletingReg ? 'Deleting...' : 'Confirm Delete'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={deletingReg}
+                      onClick={() => setConfirmDeleteRegId(null)}
+                      className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteRegId(selectedReg.id)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-red-200 text-red-700 hover:bg-red-50 text-xs font-semibold"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Registration</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>

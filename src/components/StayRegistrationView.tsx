@@ -24,6 +24,7 @@ import {
   Loader2,
   PenTool,
   Home,
+  Search,
 } from 'lucide-react';
 import {
   useApp,
@@ -45,9 +46,9 @@ import { optimizeImageFile, readFileAsDataUrl } from '../utils/imageOptimizer';
 const STEPS = [
   { num: 1, label: 'Student', icon: UserIcon },
   { num: 2, label: 'Parent', icon: Users },
-  { num: 3, label: 'ID Proof', icon: IdCard },
-  { num: 4, label: 'Photo', icon: Camera },
-  { num: 5, label: 'Stay', icon: BedDouble },
+  { num: 3, label: 'Stay', icon: BedDouble },
+  { num: 4, label: 'ID Proof', icon: IdCard },
+  { num: 5, label: 'Photo', icon: Camera },
   { num: 6, label: 'Agreement', icon: FileText },
   { num: 7, label: 'Review', icon: ClipboardCheck },
   { num: 8, label: 'Complete', icon: CheckCircle2 },
@@ -198,7 +199,6 @@ function CameraCaptureModal({
 
 export function StayRegistrationView() {
   const {
-    user,
     rooms,
     generalSettings,
     preselectedRoomId,
@@ -226,7 +226,7 @@ export function StayRegistrationView() {
   };
 
   // Step 1: Student Details (NO Date of Birth, NO Email)
-  const [fullName, setFullName] = useState(user?.displayName || '');
+  const [fullName, setFullName] = useState('');
   const [gender, setGender] = useState('Male');
   const [mobile, setMobile] = useState('');
   const [addressHouse, setAddressHouse] = useState('');
@@ -280,12 +280,6 @@ export function StayRegistrationView() {
   const supportsCamera =
     typeof navigator !== 'undefined' &&
     Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-
-  useEffect(() => {
-    if (user?.displayName && !fullName) {
-      setFullName(user.displayName);
-    }
-  }, [user, fullName]);
 
   useEffect(() => {
     if (preselectedRoomId) {
@@ -466,20 +460,6 @@ export function StayRegistrationView() {
     }
 
     if (targetStep === 3) {
-      if (!idProofDataUrl) {
-        errors.idProof = 'Please upload your ID proof.';
-      }
-    }
-
-    if (targetStep === 4) {
-      if (!croppedPhotoUrl) {
-        errors.photo = 'Please upload your photo.';
-      } else if (!photoConfirmed) {
-        errors.photo = 'Please confirm your photo before continuing.';
-      }
-    }
-
-    if (targetStep === 5) {
       if (matchingAvailableRooms.length > 0 && !selectedRoom) {
         errors.roomSelection = 'Please select a room.';
       }
@@ -488,6 +468,20 @@ export function StayRegistrationView() {
       }
       if (!stayDuration.trim()) {
         errors.stayDuration = 'Please select your stay duration.';
+      }
+    }
+
+    if (targetStep === 4) {
+      if (!idProofDataUrl) {
+        errors.idProof = 'Please upload your ID proof.';
+      }
+    }
+
+    if (targetStep === 5) {
+      if (!croppedPhotoUrl) {
+        errors.photo = 'Please upload your photo.';
+      } else if (!photoConfirmed) {
+        errors.photo = 'Please confirm your photo before continuing.';
       }
     }
 
@@ -701,39 +695,36 @@ export function StayRegistrationView() {
     setSubmitPhase('saving');
 
     try {
-      // Student login is NOT required — submit directly with current user (or guest session)
-      const saved = await submitStayRegistration(
-        {
-          fullName: fullName.trim(),
-          gender: gender.trim(),
-          mobile: mobile.trim(),
-          addressHouse: addressHouse.trim(),
-          addressPostOffice: addressPostOffice.trim(),
-          addressDistrict: addressDistrict.trim(),
-          addressState: addressState.trim(),
-          addressPin: addressPin.trim(),
-          fatherName: fatherName.trim(),
-          motherName: motherName.trim(),
-          parentMobile: parentMobile.trim(),
-          emergencyContact: emergencyContact.trim(),
-          emergencyRelation: emergencyRelation.trim(),
-          idProofType,
-          idProofFileName,
-          idProofMimeType,
-          idProofDataUrl: idProofDataUrl!,
-          photoDataUrl: croppedPhotoUrl!,
-          roomPreference,
-          selectedRoomId: selectedRoom?.id || '',
-          selectedRoomName: selectedRoom ? `${selectedRoom.name} (#${selectedRoom.roomNumber})` : '',
-          monthlyRent: rentSummary.monthlyRent,
-          securityDeposit: rentSummary.securityDeposit,
-          advanceRent: rentSummary.advanceRent,
-          totalPayable: rentSummary.totalPayable,
-          joiningDate,
-          stayDuration,
-        },
-        user
-      );
+      // Completely public student submission — no account or login required
+      const saved = await submitStayRegistration({
+        fullName: fullName.trim(),
+        gender: gender.trim(),
+        mobile: mobile.trim(),
+        addressHouse: addressHouse.trim(),
+        addressPostOffice: addressPostOffice.trim(),
+        addressDistrict: addressDistrict.trim(),
+        addressState: addressState.trim(),
+        addressPin: addressPin.trim(),
+        fatherName: fatherName.trim(),
+        motherName: motherName.trim(),
+        parentMobile: parentMobile.trim(),
+        emergencyContact: emergencyContact.trim(),
+        emergencyRelation: emergencyRelation.trim(),
+        idProofType,
+        idProofFileName,
+        idProofMimeType,
+        idProofDataUrl: idProofDataUrl!,
+        photoDataUrl: croppedPhotoUrl!,
+        roomPreference,
+        selectedRoomId: selectedRoom?.id || '',
+        selectedRoomName: selectedRoom ? `${selectedRoom.name} (#${selectedRoom.roomNumber})` : '',
+        monthlyRent: rentSummary.monthlyRent,
+        securityDeposit: rentSummary.securityDeposit,
+        advanceRent: rentSummary.advanceRent,
+        totalPayable: rentSummary.totalPayable,
+        joiningDate,
+        stayDuration,
+      });
 
       // Save completed record immediately BEFORE generating PDF so PDF errors never cause duplicate saves
       setCompletedReg(saved);
@@ -818,9 +809,17 @@ export function StayRegistrationView() {
           </h1>
           <p className="text-sm sm:text-base text-slate-600 mt-1">
             Complete your monthly stay registration at {hostelBrandName} and generate your
-            print-ready PDF. No login required.
+            print-ready Agreement PDF. No login required.
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => setActiveTab('find_registration')}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs sm:text-sm font-semibold hover:border-blue-300 hover:text-blue-700 self-start sm:self-auto shrink-0 transition-colors"
+        >
+          <Search className="w-4 h-4 text-blue-600" />
+          <span>Find My Registration</span>
+        </button>
       </div>
 
       {/* 8-Step Progress Indicator */}
@@ -1157,8 +1156,8 @@ export function StayRegistrationView() {
         </section>
       )}
 
-      {/* ==================== STEP 3: IDENTITY PROOF ==================== */}
-      {step === 3 && (
+      {/* ==================== STEP 4: IDENTITY PROOF ==================== */}
+      {step === 4 && (
         <section className="bg-white border border-slate-200/80 rounded-3xl p-6 sm:p-8 space-y-6 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
           <div>
             <h2 className="text-xl font-bold text-slate-900">Identity Proof</h2>
@@ -1301,8 +1300,8 @@ export function StayRegistrationView() {
         </section>
       )}
 
-      {/* ==================== STEP 4: STUDENT PHOTO + CROP & PREVIEW ==================== */}
-      {step === 4 && (
+      {/* ==================== STEP 5: STUDENT PHOTO + CROP & PREVIEW ==================== */}
+      {step === 5 && (
         <section className="bg-white border border-slate-200/80 rounded-3xl p-6 sm:p-8 space-y-6 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
           <div>
             <h2 className="text-xl font-bold text-slate-900">Student Photo</h2>
@@ -1446,8 +1445,8 @@ export function StayRegistrationView() {
         </section>
       )}
 
-      {/* ==================== STEP 5: STAY DETAILS & LIVE MONTHLY RENT ==================== */}
-      {step === 5 && (
+      {/* ==================== STEP 3: STAY DETAILS & LIVE MONTHLY RENT ==================== */}
+      {step === 3 && (
         <section className="bg-white border border-slate-200/80 rounded-3xl p-6 sm:p-8 space-y-6 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
           <div>
             <h2 className="text-xl font-bold text-slate-900">Stay Details</h2>
@@ -1799,7 +1798,7 @@ export function StayRegistrationView() {
                 <h3 className="text-sm font-bold text-slate-900">Stay Details</h3>
                 <button
                   type="button"
-                  onClick={() => setStep(5)}
+                  onClick={() => setStep(3)}
                   className="text-xs font-medium text-blue-600"
                 >
                   Edit
@@ -1831,7 +1830,7 @@ export function StayRegistrationView() {
                 <h3 className="text-sm font-bold text-slate-900">Identity Proof</h3>
                 <button
                   type="button"
-                  onClick={() => setStep(3)}
+                  onClick={() => setStep(4)}
                   className="text-xs font-medium text-blue-600"
                 >
                   Edit
@@ -1855,7 +1854,7 @@ export function StayRegistrationView() {
                 <h3 className="text-sm font-bold text-slate-900">Student Photo</h3>
                 <button
                   type="button"
-                  onClick={() => setStep(4)}
+                  onClick={() => setStep(5)}
                   className="text-xs font-medium text-blue-600"
                 >
                   Edit
@@ -1903,33 +1902,40 @@ export function StayRegistrationView() {
           <div className="space-y-2 max-w-xl mx-auto">
             <p className="text-xs font-semibold text-blue-700">🏠 {hostelBrandName}</p>
             <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">
-              Registration Successful 🎉
+              🎉 Registration Successful
             </h2>
             <p className="text-sm sm:text-base text-slate-600">
-              Your hostel registration has been submitted successfully.
+              Your registration has been completed successfully.
             </p>
           </div>
 
           <div className="max-w-lg mx-auto bg-slate-50 border border-slate-200/80 rounded-2xl p-5 grid grid-cols-1 sm:grid-cols-3 gap-3 text-left">
             <div>
-              <p className="text-xs text-slate-500">Registration ID</p>
-              <p className="text-sm font-bold text-blue-700 tabular-nums mt-0.5">
+              <p className="text-xs text-slate-500">Registration Number</p>
+              <p className="text-sm font-bold font-mono text-blue-700 tabular-nums mt-0.5">
                 {completedReg.registrationId}
               </p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">Date (IST)</p>
+              <p className="text-xs text-slate-500">Registration Date</p>
               <p className="text-sm font-bold text-slate-900 tabular-nums mt-0.5">
                 {completedReg.registrationDateIST}
               </p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">Time (IST)</p>
+              <p className="text-xs text-slate-500">Registration Time</p>
               <p className="text-sm font-bold text-slate-900 tabular-nums mt-0.5">
                 {completedReg.registrationTimeIST}
               </p>
             </div>
           </div>
+
+          <p className="text-xs text-slate-500 max-w-md mx-auto">
+            Please save your Registration Number{' '}
+            <strong className="font-mono text-slate-800">{completedReg.registrationId}</strong>. You
+            can access and re-download your agreement anytime using{' '}
+            <strong className="text-slate-700">Find My Registration</strong>.
+          </p>
 
           {/* PDF Error Recovery (No duplicate registration!) */}
           {pdfError && !pdfResult && (
@@ -1962,27 +1968,27 @@ export function StayRegistrationView() {
               <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
                 <button
                   type="button"
-                  onClick={() => setPdfViewerOpen(true)}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700"
-                >
-                  <Eye className="w-4 h-4" />
-                  <span>View PDF</span>
-                </button>
-                <button
-                  type="button"
                   onClick={handleDownloadPdf}
                   className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700"
                 >
                   <Download className="w-4 h-4" />
-                  <span>Download PDF</span>
+                  <span>Download Agreement PDF</span>
                 </button>
                 <button
                   type="button"
                   onClick={handlePrintPdf}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700"
                 >
                   <Printer className="w-4 h-4" />
-                  <span>Print PDF</span>
+                  <span>Print Agreement</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPdfViewerOpen(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50"
+                >
+                  <Eye className="w-4 h-4" />
+                  <span>View Registration</span>
                 </button>
                 <button
                   type="button"
@@ -2011,15 +2017,14 @@ export function StayRegistrationView() {
               <Home className="w-4 h-4" />
               <span>Back to Home</span>
             </button>
-            {user && (
-              <button
-                type="button"
-                onClick={() => setActiveTab('profile')}
-                className="text-sm font-semibold text-blue-600 hover:text-blue-800"
-              >
-                View My Registrations in Profile →
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setActiveTab('find_registration')}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-800"
+            >
+              <Search className="w-4 h-4" />
+              <span>Find My Registration →</span>
+            </button>
           </div>
         </section>
       )}

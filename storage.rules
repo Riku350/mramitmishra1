@@ -11,25 +11,30 @@ service firebase.storage {
       return request.auth != null && request.auth.token.email_verified == true;
     }
 
-    // Single authorized admin email only
+    // Single strictly authorized admin email only
     function isAdmin() {
       return isVerifiedUser() &&
         request.auth.token.email is string &&
         request.auth.token.email.lower() == 'godrikuop@gmail.com';
     }
 
-    // Private student registration documents (photo, ID proof, pen-signed document copy)
-    // Strictly isolated to the uploading student and the verified hostel admin
-    match /registrations/{userId}/{registrationId}/{fileName} {
-      allow read: if isVerifiedUser() && (request.auth.uid == userId || isAdmin());
-      allow write: if isVerifiedUser() &&
-        (request.auth.uid == userId || isAdmin()) &&
+    // Private student registration documents (photo, ID proof, pen-signed copy)
+    // Strictly private: readable, replaceable, and deletable ONLY by verified admin.
+    match /registrations/{registrationId}/{fileName} {
+      allow read: if isAdmin();
+      allow create: if
         request.resource.size <= 5 * 1024 * 1024 &&
         request.resource.contentType.matches('^(image/(jpeg|jpg|png|webp)|application/pdf)$');
+      allow update, delete: if isAdmin();
     }
 
-    // Public hostel showcase images (rooms, facilities, gallery, homepage, admin profile)
-    // Readable by website visitors, writable ONLY by verified admin
+    // Legacy user-scoped private registration path (admin-only access)
+    match /registrations/{userId}/{registrationId}/{fileName} {
+      allow read, write: if isAdmin();
+    }
+
+    // Public hostel showcase images (rooms, facilities, gallery, hostel, owner)
+    // Public Read for all visitors; Upload / Replace / Delete ONLY by verified admin.
     match /public/{folder}/{fileName} {
       allow read: if folder in ['rooms', 'facilities', 'gallery', 'hostel', 'owner'];
       allow write: if isAdmin() &&

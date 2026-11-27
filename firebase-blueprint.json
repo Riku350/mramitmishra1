@@ -2,7 +2,7 @@
   "entities": {
     "Room": {
       "title": "Room",
-      "description": "A hostel room with monthly rent per sharing tier, capacity, available beds, multiple photos, facilities, and real-time status.",
+      "description": "A hostel room at Amit Bhaiya Lawaj with monthly rent per sharing tier, capacity, available beds, multiple photos, facilities, and real-time status.",
       "type": "object",
       "properties": {
         "name": { "type": "string", "minLength": 1, "maxLength": 120 },
@@ -49,11 +49,11 @@
     },
     "GalleryItem": {
       "title": "GalleryItem",
-      "description": "A hostel photo belonging to a specific category with ordering support.",
+      "description": "A public hostel photo belonging to a specific category with ordering support.",
       "type": "object",
       "properties": {
         "title": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "category": { "type": "string", "enum": ["hostel", "lodge", "rooms", "bathroom", "parking", "rooftop", "study_area", "other", "surroundings", "owner"] },
+        "category": { "type": "string", "enum": ["hostel", "lodge", "rooms", "bathroom", "parking", "rooftop", "study_area", "facilities", "other", "surroundings", "owner"] },
         "imageUrl": { "type": "string", "minLength": 1, "maxLength": 250000 },
         "description": { "type": "string", "maxLength": 400 },
         "sortOrder": { "type": "number" },
@@ -115,7 +115,7 @@
     },
     "ContactSettings": {
       "title": "ContactSettings",
-      "description": "Public business contact details for the hostel.",
+      "description": "Public business contact details for Amit Bhaiya Lawaj.",
       "type": "object",
       "properties": {
         "phone": { "type": "string", "maxLength": 30 },
@@ -194,7 +194,7 @@
     },
     "Booking": {
       "title": "Booking",
-      "description": "Private student room inquiry/booking record isolated to creator and admin.",
+      "description": "Private student room inquiry/booking record managed by verified admin.",
       "type": "object",
       "properties": {
         "guestName": { "type": "string", "minLength": 1, "maxLength": 100 },
@@ -213,13 +213,25 @@
       },
       "required": ["guestName", "roomName", "guestsCount", "status", "userId", "createdAt", "updatedAt"]
     },
+    "RegistrationCounter": {
+      "title": "RegistrationCounter",
+      "description": "Monotonic yearly counter used to generate sequential unique ABL-YYYY-XXXX registration numbers.",
+      "type": "object",
+      "properties": {
+        "year": { "type": "number" },
+        "lastNumber": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["year", "lastNumber", "updatedAt"]
+    },
     "StayRegistration": {
       "title": "StayRegistration",
-      "description": "Private monthly stay registration for Amit Bhaiya Lawaj containing student info (without DOB or email), parent details (without parent address), room selection, Hindi agreement acceptance, IST audit timestamps, signed copy metadata, and admin status.",
+      "description": "Private monthly stay registration for Amit Bhaiya Lawaj submitted without requiring student login, containing student info (without DOB or email), parent details (without parent address), room selection, Hindi agreement acceptance, IST timestamps, and admin status.",
       "type": "object",
       "properties": {
         "registrationId": { "type": "string", "minLength": 4, "maxLength": 40 },
         "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "lookupKey": { "type": "string", "maxLength": 64 },
         "status": {
           "type": "string",
           "enum": [
@@ -291,7 +303,7 @@
     },
     "RegistrationDocument": {
       "title": "RegistrationDocument",
-      "description": "Private student document payload (cropped photo, ID proof, or uploaded pen-signed registration copy) stored securely under a registration and isolated strictly to owner and verified admin.",
+      "description": "Private student document payload (cropped photo, ID proof, or uploaded pen-signed registration copy) stored securely under a registration and readable ONLY by verified admin.",
       "type": "object",
       "properties": {
         "docType": { "type": "string", "enum": ["photo", "id_proof", "signature", "signed_document"] },
@@ -303,9 +315,69 @@
       },
       "required": ["docType", "userId", "mimeType", "dataUrl", "createdAt"]
     },
+    "RegistrationLookup": {
+      "title": "RegistrationLookup",
+      "description": "Cryptographically keyed (SHA-256 of Registration Number + Mobile Number) student receipt document allowing Find My Registration without login, never exposing ID proof files or list queries.",
+      "type": "object",
+      "properties": {
+        "registrationId": { "type": "string", "minLength": 4, "maxLength": 40 },
+        "registrationDocId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "status": {
+          "type": "string",
+          "enum": [
+            "submitted",
+            "pdf_generated",
+            "printed",
+            "signed_copy_received",
+            "pending",
+            "approved",
+            "rejected",
+            "room_assigned",
+            "active",
+            "completed"
+          ]
+        },
+        "fullName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "gender": { "type": "string", "minLength": 1, "maxLength": 30 },
+        "mobile": { "type": "string", "minLength": 8, "maxLength": 25 },
+        "addressHouse": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "addressPostOffice": { "type": "string", "maxLength": 120 },
+        "addressDistrict": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "addressState": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "addressPin": { "type": "string", "minLength": 4, "maxLength": 15 },
+        "fatherName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "motherName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "parentMobile": { "type": "string", "minLength": 8, "maxLength": 25 },
+        "emergencyContact": { "type": "string", "maxLength": 30 },
+        "emergencyRelation": { "type": "string", "maxLength": 60 },
+        "idProofType": { "type": "string", "enum": ["Aadhaar Card", "Other Valid ID"] },
+        "idProofFileName": { "type": "string", "maxLength": 180 },
+        "roomPreference": { "type": "string", "enum": ["Single", "Double", "Triple"] },
+        "selectedRoomName": { "type": "string", "maxLength": 120 },
+        "assignedRoomNumber": { "type": "string", "maxLength": 40 },
+        "monthlyRent": { "type": "number" },
+        "securityDeposit": { "type": "number" },
+        "advanceRent": { "type": "number" },
+        "totalPayable": { "type": "number" },
+        "joiningDate": { "type": "string", "minLength": 4, "maxLength": 30 },
+        "stayDuration": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "registrationDateIST": { "type": "string", "minLength": 6, "maxLength": 30 },
+        "registrationTimeIST": { "type": "string", "minLength": 4, "maxLength": 30 },
+        "photoDataUrl": { "type": "string", "maxLength": 400000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "registrationId", "registrationDocId", "status", "fullName", "gender", "mobile",
+        "addressHouse", "addressDistrict", "addressState", "addressPin",
+        "fatherName", "motherName", "parentMobile",
+        "idProofType", "roomPreference", "joiningDate", "stayDuration",
+        "registrationDateIST", "registrationTimeIST", "createdAt", "updatedAt"
+      ]
+    },
     "UserAccount": {
       "title": "UserAccount",
-      "description": "Private user account metadata strictly isolated to self or admin.",
+      "description": "Private user account metadata strictly isolated to verified admin.",
       "type": "object",
       "properties": {
         "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
@@ -343,11 +415,11 @@
     },
     "/rules/{ruleId}": {
       "schema": { "$ref": "#/entities/LodgeRule" },
-      "description": "Publicly readable student hostel rules; writable only by verified admin."
+      "description": "Publicly readable hostel rules; writable only by verified admin."
     },
     "/settings/general": {
       "schema": { "$ref": "#/entities/GeneralSettings" },
-      "description": "General hostel branding, hero image, welcome copy, monthly stay info, and monthly pricing defaults."
+      "description": "General branding, hero image, welcome copy, monthly stay info, and monthly pricing defaults."
     },
     "/settings/contact": {
       "schema": { "$ref": "#/entities/ContactSettings" },
@@ -369,17 +441,25 @@
       "schema": { "$ref": "#/entities/OwnerProfile" },
       "description": "Hostel owner/admin profile."
     },
+    "/counters/{counterId}": {
+      "schema": { "$ref": "#/entities/RegistrationCounter" },
+      "description": "Yearly monotonic registration sequence counters (registrations_YYYY) for generating unique ABL-YYYY-XXXX numbers."
+    },
     "/bookings/{bookingId}": {
       "schema": { "$ref": "#/entities/Booking" },
-      "description": "Private student room inquiry records isolated to creator and verified admin."
+      "description": "Private student room inquiry records managed by verified admin."
     },
     "/registrations/{registrationId}": {
       "schema": { "$ref": "#/entities/StayRegistration" },
-      "description": "Private monthly stay registration records strictly isolated to the submitting student and verified admin."
+      "description": "Private monthly stay registration records writable on initial creation without login, readable/updatable/deletable ONLY by verified admin."
     },
     "/registrations/{registrationId}/documents/{docId}": {
       "schema": { "$ref": "#/entities/RegistrationDocument" },
-      "description": "Private student uploaded assets (cropped photo, ID proof, signed registration document) strictly isolated to owner and verified admin."
+      "description": "Private student uploaded assets (cropped photo, ID proof, signed document) readable/updatable/deletable ONLY by verified admin."
+    },
+    "/registration_lookups/{lookupKey}": {
+      "schema": { "$ref": "#/entities/RegistrationLookup" },
+      "description": "SHA-256 keyed student receipt documents for login-free Find My Registration (no list access, no ID proof stored)."
     },
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/UserAccount" },
