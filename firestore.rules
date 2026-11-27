@@ -312,97 +312,105 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
-    // Expression-budgeted StayRegistration validation (stays far below Firestore's 1,000-expression ceiling)
-    function isValidStayRegistrationCore(d) {
-      return d.registrationId is string && d.registrationId.size() >= 4 && d.registrationId.size() <= 40 &&
-        d.userId is string && d.userId.size() >= 1 && d.userId.size() <= 128 &&
+    // Expression-budgeted IdentityProof & StayRegistration validation (<550 exprs even with all fields populated)
+    function isValidIdentityProof(ip) {
+      return ip is map &&
+        ip.keys().hasOnly([
+          'type', 'frontUrl', 'backUrl',
+          'frontFileName', 'frontMimeType', 'backFileName', 'backMimeType'
+        ]) &&
+        ip.type in ['Aadhaar Card', 'PAN Card', 'Driving Licence', 'Voter ID', 'Bank Passbook', 'Other Valid ID'] &&
+        ip.frontUrl is string && ip.frontUrl.size() > 0 && ip.frontUrl.size() <= 400 &&
+        ip.get('backUrl', '') is string && ip.get('backUrl', '').size() <= 400 &&
+        ip.get('frontFileName', '') is string &&
+        ip.get('frontMimeType', '') is string &&
+        ip.get('backFileName', '') is string &&
+        ip.get('backMimeType', '') is string;
+    }
+
+    function isValidStayRegistrationCreate(d) {
+      return d.keys().hasOnly([
+          'registrationId', 'userId', 'lookupKey', 'status', 'fullName', 'gender', 'mobile',
+          'addressHouse', 'addressPostOffice', 'state', 'district', 'addressDistrict', 'addressState', 'addressPin',
+          'fatherName', 'motherName', 'parentMobile', 'emergencyContact', 'emergencyRelation',
+          'idProofType', 'identityProof', 'idProofFileName', 'idProofMimeType',
+          'idProofStoragePath', 'idProofBackFileName', 'idProofBackMimeType', 'idProofBackStoragePath',
+          'photoStoragePath', 'storageBackend',
+          'roomPreference', 'selectedRoomId', 'selectedRoomName',
+          'monthlyRent', 'securityDeposit', 'advanceRent', 'totalPayable',
+          'joiningDate', 'stayDuration', 'agreementAccepted', 'agreementVersion',
+          'registrationDateIST', 'registrationTimeIST', 'statusUpdatedAtIST', 'updatedAtIST',
+          'createdAt', 'updatedAt'
+        ]) &&
+        d.registrationId is string && d.registrationId.size() <= 40 &&
         (!('lookupKey' in d) || d.lookupKey == '' || isValidLookupKey(d.lookupKey)) &&
-        d.status in [
-          'submitted', 'pdf_generated', 'printed', 'signed_copy_received',
-          'pending', 'approved', 'rejected', 'room_assigned', 'active', 'completed'
-        ] &&
-        d.fullName is string && d.fullName.size() >= 1 && d.fullName.size() <= 120 &&
-        d.gender is string && d.gender.size() >= 1 && d.gender.size() <= 30 &&
+        d.status == 'submitted' &&
+        d.fullName is string && d.fullName.size() > 0 && d.fullName.size() <= 120 &&
+        d.gender is string &&
         d.mobile is string && d.mobile.size() >= 8 && d.mobile.size() <= 25 &&
-        d.addressHouse is string && d.addressHouse.size() >= 1 && d.addressHouse.size() <= 200 &&
-        d.addressDistrict is string && d.addressDistrict.size() >= 1 && d.addressDistrict.size() <= 100 &&
-        d.addressState is string && d.addressState.size() >= 1 && d.addressState.size() <= 100 &&
-        d.addressPin is string && d.addressPin.size() >= 4 && d.addressPin.size() <= 15 &&
-        d.fatherName is string && d.fatherName.size() >= 1 && d.fatherName.size() <= 120 &&
-        d.motherName is string && d.motherName.size() >= 1 && d.motherName.size() <= 120 &&
+        d.addressHouse is string && d.addressHouse.size() <= 200 &&
+        d.addressDistrict is string && d.addressDistrict.size() <= 100 &&
+        d.addressState is string && d.addressState.size() <= 100 &&
+        d.addressPin is string && d.addressPin.size() <= 15 &&
+        d.fatherName is string && d.fatherName.size() <= 120 &&
+        d.motherName is string && d.motherName.size() <= 120 &&
         d.parentMobile is string && d.parentMobile.size() >= 8 && d.parentMobile.size() <= 25 &&
-        d.idProofType in ['Aadhaar Card', 'Other Valid ID'] &&
+        d.idProofType in ['Aadhaar Card', 'PAN Card', 'Driving Licence', 'Voter ID', 'Bank Passbook', 'Other Valid ID'] &&
+        (!('identityProof' in d) || isValidIdentityProof(d.identityProof)) &&
         d.roomPreference in ['Single', 'Double', 'Triple'] &&
-        d.joiningDate is string && d.joiningDate.size() >= 4 && d.joiningDate.size() <= 30 &&
-        d.stayDuration is string && d.stayDuration.size() >= 1 && d.stayDuration.size() <= 60 &&
-        d.agreementAccepted is bool && d.agreementAccepted == true &&
-        d.registrationDateIST is string && d.registrationDateIST.size() >= 6 && d.registrationDateIST.size() <= 30 &&
-        d.registrationTimeIST is string && d.registrationTimeIST.size() >= 4 && d.registrationTimeIST.size() <= 30 &&
+        d.joiningDate is string &&
+        d.stayDuration is string &&
+        d.agreementAccepted == true &&
+        d.registrationDateIST is string &&
+        d.registrationTimeIST is string &&
+        d.get('addressPostOffice', '') is string &&
+        d.get('state', '') is string &&
+        d.get('district', '') is string &&
+        d.get('emergencyContact', '') is string &&
+        d.get('emergencyRelation', '') is string &&
+        d.get('idProofFileName', '') is string &&
+        d.get('idProofMimeType', '') is string &&
+        d.get('idProofStoragePath', '') is string &&
+        d.get('idProofBackFileName', '') is string &&
+        d.get('idProofBackMimeType', '') is string &&
+        d.get('idProofBackStoragePath', '') is string &&
+        d.get('photoStoragePath', '') is string &&
+        d.get('storageBackend', 'firestore_private') in ['firebase_storage', 'firestore_private'] &&
+        d.get('selectedRoomId', '') is string &&
+        d.get('selectedRoomName', '') is string &&
+        (d.get('monthlyRent', 0) == null || d.get('monthlyRent', 0) is number) &&
+        (d.get('securityDeposit', 0) == null || d.get('securityDeposit', 0) is number) &&
+        (d.get('advanceRent', 0) == null || d.get('advanceRent', 0) is number) &&
+        (d.get('totalPayable', 0) == null || d.get('totalPayable', 0) is number) &&
+        d.get('agreementVersion', '') is string &&
+        d.get('statusUpdatedAtIST', '') is string &&
+        d.get('updatedAtIST', '') is string &&
         d.createdAt is timestamp &&
         d.updatedAt is timestamp;
     }
 
-    function isValidStayRegistrationExtras(d) {
-      return (!('addressPostOffice' in d) || (d.addressPostOffice is string && d.addressPostOffice.size() <= 120)) &&
-        (!('emergencyContact' in d) || (d.emergencyContact is string && d.emergencyContact.size() <= 30)) &&
-        (!('emergencyRelation' in d) || (d.emergencyRelation is string && d.emergencyRelation.size() <= 60)) &&
-        (!('idProofFileName' in d) || (d.idProofFileName is string && d.idProofFileName.size() <= 180)) &&
-        (!('idProofMimeType' in d) || (d.idProofMimeType is string && d.idProofMimeType.size() <= 80)) &&
-        (!('idProofStoragePath' in d) || (d.idProofStoragePath is string && d.idProofStoragePath.size() <= 400)) &&
+    function isValidStayRegistrationUpdate(d) {
+      return d.status in [
+          'submitted', 'pdf_generated', 'printed', 'signed_copy_received',
+          'pending', 'approved', 'rejected', 'room_assigned', 'active', 'completed'
+        ] &&
+        (!('assignedRoomNumber' in d) || (d.assignedRoomNumber is string && d.assignedRoomNumber.size() <= 40)) &&
+        (!('adminNotes' in d) || (d.adminNotes is string && d.adminNotes.size() <= 600)) &&
         (!('photoStoragePath' in d) || (d.photoStoragePath is string && d.photoStoragePath.size() <= 400)) &&
-        (!('signatureStoragePath' in d) || (d.signatureStoragePath is string && d.signatureStoragePath.size() <= 400)) &&
         (!('signedDocFileName' in d) || (d.signedDocFileName is string && d.signedDocFileName.size() <= 180)) &&
         (!('signedDocMimeType' in d) || (d.signedDocMimeType is string && d.signedDocMimeType.size() <= 80)) &&
         (!('signedDocStoragePath' in d) || (d.signedDocStoragePath is string && d.signedDocStoragePath.size() <= 400)) &&
-        (!('storageBackend' in d) || d.storageBackend in ['firebase_storage', 'firestore_private']) &&
-        (!('selectedRoomId' in d) || (d.selectedRoomId is string && d.selectedRoomId.size() <= 128)) &&
-        (!('selectedRoomName' in d) || (d.selectedRoomName is string && d.selectedRoomName.size() <= 120)) &&
-        (!('assignedRoomNumber' in d) || (d.assignedRoomNumber is string && d.assignedRoomNumber.size() <= 40)) &&
-        (!('monthlyRent' in d) || d.monthlyRent == null || ((d.monthlyRent is int || d.monthlyRent is float) && d.monthlyRent >= 0 && d.monthlyRent <= 100000)) &&
-        (!('securityDeposit' in d) || d.securityDeposit == null || ((d.securityDeposit is int || d.securityDeposit is float) && d.securityDeposit >= 0 && d.securityDeposit <= 100000)) &&
-        (!('advanceRent' in d) || d.advanceRent == null || ((d.advanceRent is int || d.advanceRent is float) && d.advanceRent >= 0 && d.advanceRent <= 100000)) &&
-        (!('totalPayable' in d) || d.totalPayable == null || ((d.totalPayable is int || d.totalPayable is float) && d.totalPayable >= 0 && d.totalPayable <= 500000)) &&
-        (!('agreementVersion' in d) || (d.agreementVersion is string && d.agreementVersion.size() <= 40)) &&
         (!('pdfGeneratedAtIST' in d) || (d.pdfGeneratedAtIST is string && d.pdfGeneratedAtIST.size() <= 40)) &&
         (!('statusUpdatedAtIST' in d) || (d.statusUpdatedAtIST is string && d.statusUpdatedAtIST.size() <= 40)) &&
         (!('signedDocUploadedAtIST' in d) || (d.signedDocUploadedAtIST is string && d.signedDocUploadedAtIST.size() <= 40)) &&
         (!('updatedAtIST' in d) || (d.updatedAtIST is string && d.updatedAtIST.size() <= 40)) &&
-        (!('adminNotes' in d) || (d.adminNotes is string && d.adminNotes.size() <= 600));
-    }
-
-    function isValidStayRegistration(d) {
-      return d.keys().hasAll([
-          'registrationId', 'userId', 'status', 'fullName', 'gender', 'mobile',
-          'addressHouse', 'addressDistrict', 'addressState', 'addressPin',
-          'fatherName', 'motherName', 'parentMobile',
-          'idProofType', 'roomPreference', 'joiningDate', 'stayDuration',
-          'agreementAccepted', 'registrationDateIST', 'registrationTimeIST',
-          'createdAt', 'updatedAt'
-        ]) &&
-        d.keys().hasOnly([
-          'registrationId', 'userId', 'lookupKey', 'status', 'fullName', 'dateOfBirth', 'gender', 'mobile', 'email',
-          'addressHouse', 'addressPostOffice', 'addressDistrict', 'addressState', 'addressPin',
-          'fatherName', 'motherName', 'parentMobile', 'parentAddress', 'emergencyContact', 'emergencyRelation',
-          'idProofType', 'idProofFileName', 'idProofMimeType',
-          'idProofStoragePath', 'photoStoragePath', 'signatureStoragePath',
-          'signedDocFileName', 'signedDocMimeType', 'signedDocStoragePath',
-          'storageBackend',
-          'roomPreference', 'selectedRoomId', 'selectedRoomName', 'assignedRoomNumber',
-          'monthlyRent', 'securityDeposit', 'advanceRent', 'totalPayable',
-          'joiningDate', 'stayDuration', 'agreementAccepted', 'agreementVersion',
-          'registrationDateIST', 'registrationTimeIST',
-          'pdfGeneratedAtIST', 'statusUpdatedAtIST', 'signedDocUploadedAtIST', 'updatedAtIST',
-          'adminNotes',
-          'createdAt', 'updatedAt'
-        ]) &&
-        isValidStayRegistrationCore(d) &&
-        isValidStayRegistrationExtras(d);
+        d.updatedAt is timestamp;
     }
 
     function isValidRegistrationDocument(data) {
       return data.keys().hasAll(['docType', 'userId', 'mimeType', 'dataUrl', 'createdAt']) &&
         data.keys().hasOnly(['docType', 'userId', 'fileName', 'mimeType', 'dataUrl', 'createdAt']) &&
-        data.docType in ['photo', 'id_proof', 'signature', 'signed_document'] &&
+        data.docType in ['photo', 'id_proof', 'id_proof_back', 'signature', 'signed_document'] &&
         data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
         (!('fileName' in data) || (data.fileName is string && data.fileName.size() <= 180)) &&
         data.mimeType is string && data.mimeType.size() >= 3 && data.mimeType.size() <= 80 &&
@@ -411,56 +419,52 @@ service cloud.firestore {
     }
 
     function isValidRegistrationLookup(d) {
-      return d.keys().hasAll([
+      return d.keys().hasOnly([
           'registrationId', 'registrationDocId', 'status', 'fullName', 'gender', 'mobile',
-          'addressHouse', 'addressDistrict', 'addressState', 'addressPin',
-          'fatherName', 'motherName', 'parentMobile',
-          'idProofType', 'roomPreference', 'joiningDate', 'stayDuration',
-          'registrationDateIST', 'registrationTimeIST', 'createdAt', 'updatedAt'
-        ]) &&
-        d.keys().hasOnly([
-          'registrationId', 'registrationDocId', 'status', 'fullName', 'gender', 'mobile',
-          'addressHouse', 'addressPostOffice', 'addressDistrict', 'addressState', 'addressPin',
+          'addressHouse', 'addressPostOffice', 'state', 'district', 'addressDistrict', 'addressState', 'addressPin',
           'fatherName', 'motherName', 'parentMobile', 'emergencyContact', 'emergencyRelation',
-          'idProofType', 'idProofFileName',
+          'idProofType', 'idProofFileName', 'hasIdProofBack',
           'roomPreference', 'selectedRoomName', 'assignedRoomNumber',
           'monthlyRent', 'securityDeposit', 'advanceRent', 'totalPayable',
           'joiningDate', 'stayDuration',
           'registrationDateIST', 'registrationTimeIST',
           'photoDataUrl', 'createdAt', 'updatedAt'
         ]) &&
-        d.registrationId is string && d.registrationId.size() >= 4 && d.registrationId.size() <= 40 &&
+        d.registrationId is string && d.registrationId.size() <= 40 &&
         isValidId(d.registrationDocId) &&
         d.status in [
           'submitted', 'pdf_generated', 'printed', 'signed_copy_received',
           'pending', 'approved', 'rejected', 'room_assigned', 'active', 'completed'
         ] &&
-        d.fullName is string && d.fullName.size() >= 1 && d.fullName.size() <= 120 &&
-        d.gender is string && d.gender.size() >= 1 && d.gender.size() <= 30 &&
+        d.fullName is string && d.fullName.size() > 0 && d.fullName.size() <= 120 &&
+        d.gender is string &&
         d.mobile is string && d.mobile.size() >= 8 && d.mobile.size() <= 25 &&
-        d.addressHouse is string && d.addressHouse.size() >= 1 && d.addressHouse.size() <= 200 &&
-        (!('addressPostOffice' in d) || (d.addressPostOffice is string && d.addressPostOffice.size() <= 120)) &&
-        d.addressDistrict is string && d.addressDistrict.size() >= 1 && d.addressDistrict.size() <= 100 &&
-        d.addressState is string && d.addressState.size() >= 1 && d.addressState.size() <= 100 &&
-        d.addressPin is string && d.addressPin.size() >= 4 && d.addressPin.size() <= 15 &&
-        d.fatherName is string && d.fatherName.size() >= 1 && d.fatherName.size() <= 120 &&
-        d.motherName is string && d.motherName.size() >= 1 && d.motherName.size() <= 120 &&
+        d.addressHouse is string && d.addressHouse.size() <= 200 &&
+        d.addressDistrict is string && d.addressDistrict.size() <= 100 &&
+        d.addressState is string && d.addressState.size() <= 100 &&
+        d.addressPin is string && d.addressPin.size() <= 15 &&
+        d.fatherName is string && d.fatherName.size() <= 120 &&
+        d.motherName is string && d.motherName.size() <= 120 &&
         d.parentMobile is string && d.parentMobile.size() >= 8 && d.parentMobile.size() <= 25 &&
-        (!('emergencyContact' in d) || (d.emergencyContact is string && d.emergencyContact.size() <= 30)) &&
-        (!('emergencyRelation' in d) || (d.emergencyRelation is string && d.emergencyRelation.size() <= 60)) &&
-        d.idProofType in ['Aadhaar Card', 'Other Valid ID'] &&
-        (!('idProofFileName' in d) || (d.idProofFileName is string && d.idProofFileName.size() <= 180)) &&
+        d.idProofType in ['Aadhaar Card', 'PAN Card', 'Driving Licence', 'Voter ID', 'Bank Passbook', 'Other Valid ID'] &&
         d.roomPreference in ['Single', 'Double', 'Triple'] &&
-        (!('selectedRoomName' in d) || (d.selectedRoomName is string && d.selectedRoomName.size() <= 120)) &&
-        (!('assignedRoomNumber' in d) || (d.assignedRoomNumber is string && d.assignedRoomNumber.size() <= 40)) &&
-        (!('monthlyRent' in d) || d.monthlyRent == null || ((d.monthlyRent is int || d.monthlyRent is float) && d.monthlyRent >= 0 && d.monthlyRent <= 100000)) &&
-        (!('securityDeposit' in d) || d.securityDeposit == null || ((d.securityDeposit is int || d.securityDeposit is float) && d.securityDeposit >= 0 && d.securityDeposit <= 100000)) &&
-        (!('advanceRent' in d) || d.advanceRent == null || ((d.advanceRent is int || d.advanceRent is float) && d.advanceRent >= 0 && d.advanceRent <= 100000)) &&
-        (!('totalPayable' in d) || d.totalPayable == null || ((d.totalPayable is int || d.totalPayable is float) && d.totalPayable >= 0 && d.totalPayable <= 500000)) &&
-        d.joiningDate is string && d.joiningDate.size() >= 4 && d.joiningDate.size() <= 30 &&
-        d.stayDuration is string && d.stayDuration.size() >= 1 && d.stayDuration.size() <= 60 &&
-        d.registrationDateIST is string && d.registrationDateIST.size() >= 6 && d.registrationDateIST.size() <= 30 &&
-        d.registrationTimeIST is string && d.registrationTimeIST.size() >= 4 && d.registrationTimeIST.size() <= 30 &&
+        d.joiningDate is string &&
+        d.stayDuration is string &&
+        d.registrationDateIST is string &&
+        d.registrationTimeIST is string &&
+        d.get('addressPostOffice', '') is string &&
+        d.get('state', '') is string &&
+        d.get('district', '') is string &&
+        d.get('emergencyContact', '') is string &&
+        d.get('emergencyRelation', '') is string &&
+        d.get('idProofFileName', '') is string &&
+        d.get('hasIdProofBack', false) is bool &&
+        d.get('selectedRoomName', '') is string &&
+        d.get('assignedRoomNumber', '') is string &&
+        (d.get('monthlyRent', 0) == null || d.get('monthlyRent', 0) is number) &&
+        (d.get('securityDeposit', 0) == null || d.get('securityDeposit', 0) is number) &&
+        (d.get('advanceRent', 0) == null || d.get('advanceRent', 0) is number) &&
+        (d.get('totalPayable', 0) == null || d.get('totalPayable', 0) is number) &&
         (!('photoDataUrl' in d) || (d.photoDataUrl is string && d.photoDataUrl.size() <= 400000)) &&
         d.createdAt is timestamp &&
         d.updatedAt is timestamp;
@@ -712,17 +716,13 @@ service cloud.firestore {
       allow get: if isSignedIn() && isValidId(registrationId) && isAdmin();
       allow list: if isSignedIn() && isAdmin();
       allow create: if isValidId(registrationId) &&
-        isValidStayRegistration(request.resource.data) &&
-        !('dateOfBirth' in request.resource.data) &&
-        !('email' in request.resource.data) &&
-        !('parentAddress' in request.resource.data) &&
+        isValidStayRegistrationCreate(request.resource.data) &&
         request.resource.data.createdAt == request.time &&
         request.resource.data.updatedAt == request.time &&
-        request.resource.data.status == 'submitted' &&
         isValidSubmitterUserId(request.resource.data.userId);
       allow update: if isSignedIn() &&
         isValidId(registrationId) &&
-        isValidStayRegistration(request.resource.data) &&
+        isValidStayRegistrationUpdate(request.resource.data) &&
         request.resource.data.createdAt == resource.data.createdAt &&
         request.resource.data.userId == resource.data.userId &&
         request.resource.data.registrationId == resource.data.registrationId &&
@@ -750,7 +750,7 @@ service cloud.firestore {
           request.resource.data.createdAt == request.time &&
           (
             (
-              docId in ['photo', 'id_proof'] &&
+              docId in ['photo', 'id_proof', 'id_proof_back'] &&
               request.resource.data.docType == docId &&
               isValidSubmitterUserId(request.resource.data.userId) &&
               !exists(/databases/$(database)/documents/registrations/$(registrationId)) &&

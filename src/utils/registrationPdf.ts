@@ -39,6 +39,9 @@ export interface RegistrationPdfPayload {
   idProofFileName?: string;
   idProofMimeType?: string;
   idProofDataUrl?: string | null;
+  idProofBackFileName?: string;
+  idProofBackMimeType?: string;
+  idProofBackDataUrl?: string | null;
   // Student Cropped Photo (signature is done with pen after printing)
   photoDataUrl?: string | null;
 }
@@ -361,6 +364,8 @@ export async function generateRegistrationPdf(payload: RegistrationPdfPayload): 
     ['Full Name', payload.fullName],
     ['Gender', payload.gender],
     ['Mobile Number', payload.mobile],
+    ['PIN Code', payload.addressPin],
+    ['State', payload.addressState],
     ['District', payload.addressDistrict],
     ['Complete Address', fullAddress],
   ]);
@@ -399,16 +404,21 @@ export async function generateRegistrationPdf(payload: RegistrationPdfPayload): 
   ]);
 
   // ==================== 4. IDENTITY PROOF SUMMARY (DOCUMENT ATTACHED ON SEPARATE FULL PAGE) ====================
+  const hasBackAttachment = Boolean(payload.idProofBackDataUrl || payload.idProofBackFileName);
   drawSectionHeader('4. Identity Proof');
   drawKeyValueGrid([
     ['ID Type', payload.idProofType],
     [
       'Document Attachment',
-      payload.idProofDataUrl
-        ? `Attached on separate full page(s) (${payload.idProofFileName || 'Identity Proof'})`
-        : payload.idProofFileName
-        ? `Uploaded (${payload.idProofFileName})`
-        : 'Identity Proof Uploaded',
+      payload.idProofDataUrl && payload.idProofBackDataUrl
+        ? 'Front Side & Back Side attached on separate full A4 pages'
+        : payload.idProofDataUrl
+          ? `Attached on separate full A4 page(s) (${payload.idProofFileName || 'Identity Proof'})`
+          : hasBackAttachment
+            ? 'Front Side & Back Side Uploaded (Private Admin Records)'
+            : payload.idProofFileName
+              ? `Uploaded (${payload.idProofFileName})`
+              : 'Identity Proof Uploaded',
     ],
   ]);
 
@@ -499,17 +509,32 @@ export async function generateRegistrationPdf(payload: RegistrationPdfPayload): 
   doc.setTextColor(71, 85, 105);
   doc.text('Parent / Guardian Signature', sigX + sigBoxW / 2, y + 26, { align: 'center' });
 
-  // ==================== SEPARATE FULL A4 PAGE FOR IMAGE IDENTITY PROOF ====================
-  const isImageIdProof = Boolean(
+  // ==================== SEPARATE FULL A4 PAGES FOR IDENTITY PROOF (FRONT & BACK) ====================
+  const isFrontImage = Boolean(
     payload.idProofDataUrl && payload.idProofDataUrl.startsWith('data:image/')
   );
-  const isPdfIdProof = Boolean(
+  const isFrontPdf = Boolean(
     payload.idProofDataUrl &&
       (payload.idProofMimeType === 'application/pdf' ||
         payload.idProofDataUrl.startsWith('data:application/pdf'))
   );
+  const isBackImage = Boolean(
+    payload.idProofBackDataUrl && payload.idProofBackDataUrl.startsWith('data:image/')
+  );
+  const isBackPdf = Boolean(
+    payload.idProofBackDataUrl &&
+      (payload.idProofBackMimeType === 'application/pdf' ||
+        payload.idProofBackDataUrl.startsWith('data:application/pdf'))
+  );
 
-  if (isImageIdProof && payload.idProofDataUrl) {
+  const hasBothSides = Boolean(payload.idProofBackDataUrl);
+
+  const addIdentityProofImagePage = async (
+    pageHeading: string,
+    sideLabel: string,
+    dataUrl: string,
+    fallbackFileName?: string
+  ) => {
     doc.addPage('a4', 'portrait');
 
     // Top verification header on dedicated ID Proof A4 page
@@ -522,13 +547,13 @@ export async function generateRegistrationPdf(payload: RegistrationPdfPayload): 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(15, 23, 42);
-    doc.text('IDENTITY PROOF — OFFICIAL HOSTEL VERIFICATION PAGE', margin + 4, 23);
+    doc.text(pageHeading, margin + 4, 23);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     doc.setTextColor(71, 85, 105);
     doc.text(
-      `Student: ${payload.fullName}   |   Registration ID: ${payload.registrationId}   |   ID Type: ${payload.idProofType}`,
+      `Student: ${payload.fullName}   |   Registration ID: ${payload.registrationId}   |   ID Type: ${payload.idProofType}${sideLabel ? ` (${sideLabel})` : ''}`,
       margin + 4,
       30
     );
@@ -543,7 +568,7 @@ export async function generateRegistrationPdf(payload: RegistrationPdfPayload): 
     doc.roundedRect(frameX, frameY, frameW, frameH, 2, 2, 'FD');
 
     try {
-      const idDims = await getImageDimensions(payload.idProofDataUrl);
+      const idDims = await getImageDimensions(dataUrl);
       const pad = 5;
       const availW = frameW - pad * 2;
       const availH = frameH - pad * 2;
@@ -554,8 +579,8 @@ export async function generateRegistrationPdf(payload: RegistrationPdfPayload): 
       const drawY = frameY + (frameH - drawH) / 2;
 
       doc.addImage(
-        payload.idProofDataUrl,
-        inferImageFormat(payload.idProofDataUrl),
+        dataUrl,
+        inferImageFormat(dataUrl),
         drawX,
         drawY,
         drawW,
@@ -567,13 +592,35 @@ export async function generateRegistrationPdf(payload: RegistrationPdfPayload): 
       doc.setFontSize(10);
       doc.setTextColor(100, 116, 139);
       doc.text(
-        `Identity Proof Image Attached (${payload.idProofFileName || payload.idProofType})`,
+        `Identity Proof Image Attached (${fallbackFileName || payload.idProofType})`,
         frameX + frameW / 2,
         frameY + frameH / 2,
         { align: 'center' }
       );
     }
+  };
+
+  if (isFrontImage && payload.idProofDataUrl) {
+    await addIdentityProofImagePage(
+      hasBothSides || payload.idProofType === 'Aadhaar Card'
+        ? 'IDENTITY PROOF — FRONT'
+        : `IDENTITY PROOF — ${payload.idProofType.toUpperCase()}`,
+      hasBothSides || payload.idProofType === 'Aadhaar Card' ? 'Front Side' : '',
+      payload.idProofDataUrl,
+      payload.idProofFileName
+    );
   }
+
+  if (isBackImage && payload.idProofBackDataUrl) {
+    await addIdentityProofImagePage(
+      'IDENTITY PROOF — BACK',
+      'Back Side',
+      payload.idProofBackDataUrl,
+      payload.idProofBackFileName
+    );
+  }
+
+  const hasAnyPdfAttachment = isFrontPdf || isBackPdf;
 
   // ==================== FOOTER ON ALL jsPDF PAGES ====================
   const jsPdfPageCount = doc.getNumberOfPages();
@@ -596,7 +643,7 @@ export async function generateRegistrationPdf(payload: RegistrationPdfPayload): 
       pageHeight - 6.5
     );
     doc.text(
-      isPdfIdProof ? `Form Page ${p}` : `Page ${p} of ${jsPdfPageCount}`,
+      hasAnyPdfAttachment ? `Form Page ${p}` : `Page ${p} of ${jsPdfPageCount}`,
       pageWidth - margin,
       pageHeight - 11,
       { align: 'right' }
@@ -606,19 +653,25 @@ export async function generateRegistrationPdf(payload: RegistrationPdfPayload): 
   const safeName = payload.fullName.replace(/[^a-zA-Z0-9]+/g, '_').slice(0, 32) || 'Student';
   const fileName = `${payload.registrationId}_${safeName}_Amit_Bhaiya_Lawaj_Registration.pdf`;
 
-  // ==================== APPEND MULTI-PAGE PDF IDENTITY PROOF AS SEPARATE FULL PAGES ====================
-  if (isPdfIdProof && payload.idProofDataUrl) {
+  // ==================== APPEND PDF IDENTITY PROOF PAGES AS SEPARATE FULL PAGES ====================
+  if (hasAnyPdfAttachment) {
     try {
       const baseBytes = doc.output('arraybuffer');
       const mergedPdf = await PDFDocument.load(baseBytes);
-      const idPdfBytes = dataUrlToUint8Array(payload.idProofDataUrl);
-      const idPdfDoc = await PDFDocument.load(idPdfBytes, { ignoreEncryption: true });
-      const idPageIndices = idPdfDoc.getPageIndices();
 
-      if (idPageIndices.length > 0) {
-        const copiedPages = await mergedPdf.copyPages(idPdfDoc, idPageIndices);
-        for (const page of copiedPages) {
-          mergedPdf.addPage(page);
+      const pdfAttachments: string[] = [];
+      if (isFrontPdf && payload.idProofDataUrl) pdfAttachments.push(payload.idProofDataUrl);
+      if (isBackPdf && payload.idProofBackDataUrl) pdfAttachments.push(payload.idProofBackDataUrl);
+
+      for (const pdfDataUrl of pdfAttachments) {
+        const idPdfBytes = dataUrlToUint8Array(pdfDataUrl);
+        const idPdfDoc = await PDFDocument.load(idPdfBytes, { ignoreEncryption: true });
+        const idPageIndices = idPdfDoc.getPageIndices();
+        if (idPageIndices.length > 0) {
+          const copiedPages = await mergedPdf.copyPages(idPdfDoc, idPageIndices);
+          for (const page of copiedPages) {
+            mergedPdf.addPage(page);
+          }
         }
       }
 

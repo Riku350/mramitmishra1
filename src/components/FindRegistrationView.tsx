@@ -170,8 +170,8 @@ export function FindRegistrationView() {
         mobile: record.mobile,
         addressHouse: record.addressHouse,
         addressPostOffice: record.addressPostOffice,
-        addressDistrict: record.addressDistrict,
-        addressState: record.addressState,
+        addressDistrict: record.district || record.addressDistrict,
+        addressState: record.state || record.addressState,
         addressPin: record.addressPin,
         fatherName: record.fatherName,
         motherName: record.motherName,
@@ -474,12 +474,17 @@ export function FindRegistrationView() {
                 <strong className="text-slate-900">Mobile:</strong> {record.mobile}
               </p>
               <p className="text-slate-600">
-                <strong className="text-slate-900">District:</strong> {record.addressDistrict}
+                <strong className="text-slate-900">State:</strong> {record.state || record.addressState}
+              </p>
+              <p className="text-slate-600">
+                <strong className="text-slate-900">District:</strong>{' '}
+                {record.district || record.addressDistrict}
               </p>
               <p className="text-slate-600">
                 <strong className="text-slate-900">Address:</strong> {record.addressHouse}
                 {record.addressPostOffice ? `, PO: ${record.addressPostOffice}` : ''},{' '}
-                {record.addressDistrict}, {record.addressState} - {record.addressPin}
+                {record.district || record.addressDistrict}, {record.state || record.addressState} -{' '}
+                {record.addressPin}
               </p>
             </div>
 

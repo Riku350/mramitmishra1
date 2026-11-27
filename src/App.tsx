@@ -46,6 +46,7 @@ import {
   AppErrorView,
 } from './components/LegalPages';
 import { FaqSection, FaqPageView } from './components/FaqSection';
+import { RoomPhotoLightbox } from './components/RoomPhotoLightbox';
 
 class ErrorBoundary extends Component<
   { children: React.ReactNode },
@@ -331,10 +332,27 @@ function RoomsView() {
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [activePhotoIdx, setActivePhotoIdx] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [photoLightbox, setPhotoLightbox] = useState<{
+    photos: string[];
+    index: number;
+    title: string;
+    subtitle?: string;
+  } | null>(null);
 
   const openDetail = (room: Room) => {
     setSelectedRoom(room);
     setActivePhotoIdx(0);
+  };
+
+  const openPhotoLightbox = (room: Room, startIdx = 0) => {
+    const photos = getRoomPhotos(room);
+    if (photos.length === 0) return;
+    setPhotoLightbox({
+      photos,
+      index: startIdx,
+      title: room.name,
+      subtitle: `Room #${room.roomNumber} · ${room.roomType}`,
+    });
   };
 
   const handleCopyShareText = async (room: Room) => {
@@ -504,19 +522,29 @@ function RoomsView() {
                 className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-[0_1px_3px_rgba(15,23,42,0.04)] flex flex-col justify-between transition-shadow hover:shadow-md"
               >
                 <div>
-                  <div className="relative aspect-[16/10] bg-slate-100 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => openPhotoLightbox(room, 0)}
+                    aria-label={`View photos of ${room.name}`}
+                    className="group relative block w-full aspect-[16/10] bg-slate-100 overflow-hidden text-left focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                  >
                     <img
                       src={roomPhotos[0]}
                       alt={room.name}
-                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                       referrerPolicy="no-referrer"
                     />
+                    <span className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900/70 text-white text-[11px] font-medium backdrop-blur-[2px]">
+                      <Maximize2 className="w-3 h-3" />
+                      <span>Preview</span>
+                    </span>
                     {roomPhotos.length > 1 && (
                       <span className="absolute bottom-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-slate-900/75 text-white text-[11px] font-semibold">
                         {roomPhotos.length} Photos
                       </span>
                     )}
-                  </div>
+                  </button>
 
                   <div className="p-5 space-y-3.5">
                     <div className="flex items-start justify-between gap-2">
@@ -619,18 +647,29 @@ function RoomsView() {
             className="w-full max-w-2xl bg-white border border-slate-200 rounded-3xl shadow-xl overflow-hidden max-h-[90vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="relative aspect-[16/9] bg-slate-100 shrink-0">
-              <img
-                src={detailPhotos[activePhotoIdx] || detailPhotos[0]}
-                alt={selectedRoom.name}
-                className="w-full h-full object-cover"
-                referrerPolicy="no-referrer"
-              />
+            <div className="relative h-56 sm:h-72 bg-slate-100 shrink-0 flex items-center justify-center overflow-hidden">
+              <button
+                type="button"
+                onClick={() => openPhotoLightbox(selectedRoom, activePhotoIdx)}
+                aria-label={`Open full preview of ${selectedRoom.name}`}
+                className="w-full h-full flex items-center justify-center focus:outline-none group"
+              >
+                <img
+                  src={detailPhotos[activePhotoIdx] || detailPhotos[0]}
+                  alt={selectedRoom.name}
+                  className="max-w-full max-h-full w-auto h-auto object-contain"
+                  referrerPolicy="no-referrer"
+                />
+                <span className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/75 text-white text-xs font-medium group-hover:bg-slate-900 transition-colors">
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>View Full Photo</span>
+                </span>
+              </button>
               <button
                 type="button"
                 onClick={() => setSelectedRoom(null)}
                 aria-label="Close room detail"
-                className="absolute top-4 right-4 w-9 h-9 rounded-xl bg-white/95 border border-slate-200 text-slate-700 hover:bg-white flex items-center justify-center shadow-sm"
+                className="absolute top-3.5 right-3.5 w-9 h-9 rounded-xl bg-white/95 border border-slate-200 text-slate-700 hover:bg-white flex items-center justify-center shadow-sm"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -758,6 +797,18 @@ function RoomsView() {
           </div>
         </div>
       )}
+      {/* RESPONSIVE ROOM PHOTO LIGHTBOX (max-w 90vw, max-h 80vh, object-contain) */}
+      <RoomPhotoLightbox
+        open={Boolean(photoLightbox)}
+        photos={photoLightbox?.photos || []}
+        activeIndex={photoLightbox?.index || 0}
+        title={photoLightbox?.title || 'Room Photo'}
+        subtitle={photoLightbox?.subtitle}
+        onChangeIndex={(nextIdx) =>
+          setPhotoLightbox((prev) => (prev ? { ...prev, index: nextIdx } : null))
+        }
+        onClose={() => setPhotoLightbox(null)}
+      />
     </div>
   );
 }
@@ -1164,7 +1215,7 @@ function HostelAppShell() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col lg:flex-row">
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col lg:flex-row overflow-x-hidden">
       {/* Clean White Welcome Screen (re-appears on fresh load, NO Skip button) */}
       <AnimatePresence>
         {showIntro && (

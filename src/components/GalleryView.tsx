@@ -365,7 +365,7 @@ export function GalleryView() {
             <img
               src={activePhoto.imageUrl}
               alt={activePhoto.title}
-              className="max-h-[75vh] max-w-[92vw] sm:max-w-[82vw] w-auto h-auto object-contain rounded-2xl shadow-2xl select-none"
+              className="max-h-[80vh] max-w-[90vw] sm:max-w-[82vw] w-auto h-auto object-contain rounded-2xl shadow-2xl select-none"
               referrerPolicy="no-referrer"
             />
 

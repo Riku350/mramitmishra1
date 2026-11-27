@@ -594,6 +594,9 @@ export function AdminPanel() {
         idProofDataUrl: prev?.idProofDataUrl ?? null,
         idProofMimeType: prev?.idProofMimeType ?? null,
         idProofFileName: prev?.idProofFileName ?? null,
+        idProofBackDataUrl: prev?.idProofBackDataUrl ?? null,
+        idProofBackMimeType: prev?.idProofBackMimeType ?? null,
+        idProofBackFileName: prev?.idProofBackFileName ?? null,
         signedDocDataUrl: prev?.signedDocDataUrl ?? null,
         signedDocMimeType: prev?.signedDocMimeType ?? null,
         signedDocFileName: prev?.signedDocFileName ?? null,
@@ -616,8 +619,8 @@ export function AdminPanel() {
     mobile: reg.mobile,
     addressHouse: reg.addressHouse,
     addressPostOffice: reg.addressPostOffice,
-    addressDistrict: reg.addressDistrict,
-    addressState: reg.addressState,
+    addressDistrict: reg.district || reg.addressDistrict,
+    addressState: reg.state || reg.addressState,
     addressPin: reg.addressPin,
     fatherName: reg.fatherName,
     motherName: reg.motherName,
@@ -637,6 +640,9 @@ export function AdminPanel() {
     idProofFileName: assets?.idProofFileName || reg.idProofFileName,
     idProofMimeType: assets?.idProofMimeType || reg.idProofMimeType,
     idProofDataUrl: assets?.idProofDataUrl || null,
+    idProofBackFileName: assets?.idProofBackFileName || reg.idProofBackFileName,
+    idProofBackMimeType: assets?.idProofBackMimeType || reg.idProofBackMimeType,
+    idProofBackDataUrl: assets?.idProofBackDataUrl || null,
     photoDataUrl: assets?.photoDataUrl || null,
   });
 
@@ -2892,14 +2898,15 @@ export function AdminPanel() {
                   <InfoRow label="Full Name" value={selectedReg.fullName} />
                   <InfoRow label="Gender" value={selectedReg.gender} />
                   <InfoRow label="Mobile" value={selectedReg.mobile} />
-                  <InfoRow label="District" value={selectedReg.addressDistrict || '—'} />
+                  <InfoRow label="State" value={selectedReg.state || selectedReg.addressState || '—'} />
+                  <InfoRow label="District" value={selectedReg.district || selectedReg.addressDistrict || '—'} />
                   <InfoRow
                     label="Address"
                     value={[
                       selectedReg.addressHouse,
                       selectedReg.addressPostOffice ? `PO: ${selectedReg.addressPostOffice}` : '',
-                      selectedReg.addressDistrict,
-                      selectedReg.addressState,
+                      selectedReg.district || selectedReg.addressDistrict,
+                      selectedReg.state || selectedReg.addressState,
                       selectedReg.addressPin ? `PIN: ${selectedReg.addressPin}` : '',
                     ]
                       .filter(Boolean)
@@ -2948,41 +2955,76 @@ export function AdminPanel() {
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 truncate">
-                    File: {regAssets?.idProofFileName || selectedReg.idProofFileName || 'Uploaded ID'}
+                    Front: {regAssets?.idProofFileName || selectedReg.idProofFileName || 'Uploaded ID'}
+                    {(regAssets?.idProofBackFileName || selectedReg.idProofBackFileName) &&
+                      ` · Back: ${regAssets?.idProofBackFileName || selectedReg.idProofBackFileName}`}
                   </p>
                   {loadingAssets ? (
                     <div className="py-4 text-xs text-slate-400 flex items-center gap-2">
                       <Loader2 className="w-4 h-4 animate-spin" /> Loading ID proof...
                     </div>
                   ) : regAssets?.idProofDataUrl ? (
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setMediaViewer({
-                            title: `${selectedReg.fullName} — ${selectedReg.idProofType}`,
-                            url: regAssets.idProofDataUrl!,
-                            mimeType: regAssets.idProofMimeType || undefined,
-                          })
-                        }
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>View ID Proof</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          triggerDownload(
-                            regAssets.idProofDataUrl!,
-                            regAssets.idProofFileName || `${selectedReg.registrationId}_ID_Proof`
-                          )
-                        }
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Download ID</span>
-                      </button>
+                    <div className="space-y-2.5">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setMediaViewer({
+                              title: `${selectedReg.fullName} — ${selectedReg.idProofType}${regAssets.idProofBackDataUrl ? ' (Front Side)' : ''}`,
+                              url: regAssets.idProofDataUrl!,
+                              mimeType: regAssets.idProofMimeType || undefined,
+                            })
+                          }
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>{regAssets.idProofBackDataUrl ? 'View Front' : 'View ID Proof'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            triggerDownload(
+                              regAssets.idProofDataUrl!,
+                              regAssets.idProofFileName || `${selectedReg.registrationId}_ID_Front`
+                            )
+                          }
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>{regAssets.idProofBackDataUrl ? 'Download Front' : 'Download ID'}</span>
+                        </button>
+                      </div>
+                      {regAssets.idProofBackDataUrl && (
+                        <div className="flex flex-wrap gap-2 pt-1 border-t border-slate-100">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setMediaViewer({
+                                title: `${selectedReg.fullName} — ${selectedReg.idProofType} (Back Side)`,
+                                url: regAssets.idProofBackDataUrl!,
+                                mimeType: regAssets.idProofBackMimeType || undefined,
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs font-semibold"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>View Back</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              triggerDownload(
+                                regAssets.idProofBackDataUrl!,
+                                regAssets.idProofBackFileName || `${selectedReg.registrationId}_ID_Back`
+                              )
+                            }
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Download Back</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="text-xs text-amber-600">ID proof preview not available.</p>

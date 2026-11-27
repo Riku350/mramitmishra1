@@ -27,8 +27,11 @@ import {
 } from 'firebase/firestore';
 import { ref as storageRef, uploadString, getBytes, getDownloadURL } from 'firebase/storage';
 import { HOSTEL_ASSETS, STANDARD_17_RULES, LEGACY_RULE_IDS, RuleVariant } from './data/hostelRules';
+import { IdentityProofType } from './data/identityProofTypes';
 import { getCurrentISTDateTime } from './utils/registrationPdf';
 import { optimizeImageFile } from './utils/imageOptimizer';
+
+export type { IdentityProofType };
 
 export const BRAND_NAME = 'Amit Bhaiya Lawaj';
 
@@ -340,6 +343,16 @@ export type RegistrationStatus =
   | 'active'
   | 'completed';
 
+export interface IdentityProofInfo {
+  type: IdentityProofType;
+  frontUrl: string;
+  backUrl?: string;
+  frontFileName?: string;
+  frontMimeType?: string;
+  backFileName?: string;
+  backMimeType?: string;
+}
+
 export interface StayRegistration {
   id: string;
   registrationId: string;
@@ -351,6 +364,8 @@ export interface StayRegistration {
   mobile: string;
   addressHouse: string;
   addressPostOffice?: string;
+  state?: string;
+  district?: string;
   addressDistrict: string;
   addressState: string;
   addressPin: string;
@@ -359,10 +374,14 @@ export interface StayRegistration {
   parentMobile: string;
   emergencyContact?: string;
   emergencyRelation?: string;
-  idProofType: 'Aadhaar Card' | 'Other Valid ID';
+  idProofType: IdentityProofType;
+  identityProof?: IdentityProofInfo;
   idProofFileName?: string;
   idProofMimeType?: string;
   idProofStoragePath?: string;
+  idProofBackFileName?: string;
+  idProofBackMimeType?: string;
+  idProofBackStoragePath?: string;
   photoStoragePath?: string;
   signedDocFileName?: string;
   signedDocMimeType?: string;
@@ -405,10 +424,13 @@ export interface NewStayRegistrationInput {
   parentMobile: string;
   emergencyContact?: string;
   emergencyRelation?: string;
-  idProofType: 'Aadhaar Card' | 'Other Valid ID';
+  idProofType: IdentityProofType;
   idProofFileName: string;
   idProofMimeType: string;
   idProofDataUrl: string;
+  idProofBackFileName?: string;
+  idProofBackMimeType?: string;
+  idProofBackDataUrl?: string | null;
   photoDataUrl: string;
   roomPreference: 'Single' | 'Double' | 'Triple';
   selectedRoomId?: string;
@@ -426,6 +448,9 @@ export interface RegistrationAssets {
   idProofDataUrl: string | null;
   idProofMimeType: string | null;
   idProofFileName: string | null;
+  idProofBackDataUrl: string | null;
+  idProofBackMimeType: string | null;
+  idProofBackFileName: string | null;
   signedDocDataUrl: string | null;
   signedDocMimeType: string | null;
   signedDocFileName: string | null;
@@ -440,6 +465,8 @@ export interface RegistrationLookupRecord {
   mobile: string;
   addressHouse: string;
   addressPostOffice?: string;
+  state?: string;
+  district?: string;
   addressDistrict: string;
   addressState: string;
   addressPin: string;
@@ -448,8 +475,9 @@ export interface RegistrationLookupRecord {
   parentMobile: string;
   emergencyContact?: string;
   emergencyRelation?: string;
-  idProofType: 'Aadhaar Card' | 'Other Valid ID';
+  idProofType: IdentityProofType;
   idProofFileName?: string;
+  hasIdProofBack?: boolean;
   roomPreference: 'Single' | 'Double' | 'Triple';
   selectedRoomName?: string;
   assignedRoomNumber?: string;
@@ -972,7 +1000,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const unsubRegs = onSnapshot(
       collection(db, 'registrations'),
       (snapshot) => {
-        const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as StayRegistration));
+        const list = snapshot.docs.map((d) => {
+          const raw = d.data() as Partial<StayRegistration>;
+          const resolvedState = raw.state || raw.addressState || '';
+          const resolvedDistrict = raw.district || raw.addressDistrict || '';
+          return {
+            id: d.id,
+            ...raw,
+            state: resolvedState,
+            district: resolvedDistrict,
+            addressState: resolvedState,
+            addressDistrict: resolvedDistrict,
+          } as StayRegistration;
+        });
         list.sort((a, b) => {
           const ta = (a.createdAt as { seconds?: number } | null)?.seconds ?? 0;
           const tb = (b.createdAt as { seconds?: number } | null)?.seconds ?? 0;
@@ -1769,7 +1809,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     const finalPhotoMime = inferMimeTypeFromDataUrl(finalPhotoDataUrl, 'student_photo.jpg');
 
-    // Validate & optimize ID Proof safely
+    // Validate & optimize Front ID Proof safely
     let finalIdDataUrl = (input.idProofDataUrl || '').trim();
     if (
       !finalIdDataUrl ||
@@ -1806,6 +1846,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const msg = 'ID proof upload failed. Please upload your ID proof again.';
       showToast(msg, 'error');
       throw new RegistrationSubmitError('id_proof', msg);
+    }
+
+    // Validate & optimize Back ID Proof (Required for Aadhaar Card, optional for other IDs)
+    let finalIdBackDataUrl = (input.idProofBackDataUrl || '').trim();
+    let finalIdBackMime = '';
+    const hasBackDoc = finalIdBackDataUrl.length > 0;
+    if (input.idProofType === 'Aadhaar Card' && !hasBackDoc) {
+      const msg = 'Please upload Aadhaar Back Side.';
+      showToast(msg, 'error');
+      throw new RegistrationSubmitError('id_proof', msg);
+    }
+    if (hasBackDoc) {
+      if (
+        !finalIdBackDataUrl.startsWith('data:image/') &&
+        !finalIdBackDataUrl.startsWith('data:application/pdf')
+      ) {
+        const msg = 'Back side ID proof upload failed. Please upload again.';
+        showToast(msg, 'error');
+        throw new RegistrationSubmitError('id_proof', msg);
+      }
+      finalIdBackMime =
+        (input.idProofBackMimeType || '').trim() ||
+        inferMimeTypeFromDataUrl(finalIdBackDataUrl, input.idProofBackFileName || '');
+      if (finalIdBackMime.length < 3) {
+        finalIdBackMime = inferMimeTypeFromDataUrl(
+          finalIdBackDataUrl,
+          input.idProofBackFileName || ''
+        );
+      }
+      if (finalIdBackDataUrl.startsWith('data:image/') && finalIdBackDataUrl.length > 580000) {
+        try {
+          const recompressed = await optimizeImageFile(finalIdBackDataUrl, {
+            maxDimension: 1080,
+            quality: 0.74,
+            maxChars: 520000,
+            preferJpeg: true,
+          });
+          finalIdBackDataUrl = recompressed.dataUrl;
+          finalIdBackMime = recompressed.mimeType;
+        } catch {
+          const msg = 'Back side ID proof upload failed. Please upload again.';
+          showToast(msg, 'error');
+          throw new RegistrationSubmitError('id_proof', msg);
+        }
+      }
+      if (finalIdBackDataUrl.length < 20 || finalIdBackDataUrl.length > 880000) {
+        const msg = 'Back side ID proof upload failed. Please upload again.';
+        showToast(msg, 'error');
+        throw new RegistrationSubmitError('id_proof', msg);
+      }
     }
 
     const { dateIST, timeIST, fullIST } = getCurrentISTDateTime();
@@ -1855,7 +1945,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const registrationId = `ABL-${safeYear}-${String(nextSequence).padStart(4, '0')}`;
     const docId = registrationId;
     const lookupKey = await computeRegistrationLookupKey(registrationId, input.mobile);
-    const safeFileName = (input.idProofFileName || 'id_proof').trim().slice(0, 180) || 'id_proof';
+    const safeFileName = (input.idProofFileName || 'id_proof_front').trim().slice(0, 180) || 'id_proof_front';
+    const safeBackFileName = hasBackDoc
+      ? (input.idProofBackFileName || 'id_proof_back').trim().slice(0, 180) || 'id_proof_back'
+      : '';
+
+    // Step 2: Upload private documents to Firebase Storage first (if bucket is enabled);
+    // otherwise fall back seamlessly to Admin-only private Firestore subcollection.
+    const extForMime = (mime: string) =>
+      mime === 'application/pdf' ? 'pdf' : mime === 'image/png' ? 'png' : 'jpg';
+
+    let storageBackend: 'firebase_storage' | 'firestore_private' = 'firestore_private';
+    let photoStoragePath = '';
+    let idProofStoragePath = '';
+    let idProofBackStoragePath = '';
+    let frontStoredUrl = `private://registrations/${docId}/documents/id_proof`;
+    let backStoredUrl = hasBackDoc ? `private://registrations/${docId}/documents/id_proof_back` : '';
+
+    try {
+      const pPath = `registrations/${docId}/student_photo.jpg`;
+      const fPath = `registrations/${docId}/id_proof_front.${extForMime(finalIdMime)}`;
+      const bPath = hasBackDoc
+        ? `registrations/${docId}/id_proof_back.${extForMime(finalIdBackMime)}`
+        : '';
+
+      const pRef = storageRef(storage, pPath);
+      const fRef = storageRef(storage, fPath);
+
+      await withTimeout(uploadString(pRef, finalPhotoDataUrl, 'data_url', { contentType: finalPhotoMime }), 3500);
+      await withTimeout(uploadString(fRef, finalIdDataUrl, 'data_url', { contentType: finalIdMime }), 3500);
+      if (hasBackDoc && bPath) {
+        const bRef = storageRef(storage, bPath);
+        await withTimeout(
+          uploadString(bRef, finalIdBackDataUrl, 'data_url', { contentType: finalIdBackMime }),
+          3500
+        );
+      }
+
+      storageBackend = 'firebase_storage';
+      photoStoragePath = pPath;
+      idProofStoragePath = fPath;
+      idProofBackStoragePath = bPath;
+      const bucketName = storage.app.options.storageBucket || 'firebase-storage';
+      frontStoredUrl = `gs://${bucketName}/${fPath}`;
+      if (hasBackDoc && bPath) {
+        backStoredUrl = `gs://${bucketName}/${bPath}`;
+      }
+    } catch {
+      // Firebase Storage bucket unavailable or unprovisioned — safely persist in Admin-only Firestore subcollection
+      storageBackend = 'firestore_private';
+    }
 
     // Build lean registration record (omit empty optional strings for fast rules evaluation)
     const postOffice = (input.addressPostOffice || '').trim().slice(0, 120);
@@ -1868,6 +2007,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const advanceRent = sanitizeNumberInRange(input.advanceRent, 0, 100000);
     const totalPayable = sanitizeNumberInRange(input.totalPayable, 0, 500000);
 
+    const cleanState = (input.addressState || '').trim().slice(0, 100);
+    const cleanDistrict = (input.addressDistrict || '').trim().slice(0, 100);
+
+    const identityProofObj: IdentityProofInfo = {
+      type: input.idProofType,
+      frontUrl: frontStoredUrl.slice(0, 400),
+      ...(hasBackDoc ? { backUrl: backStoredUrl.slice(0, 400) } : {}),
+      frontFileName: safeFileName,
+      frontMimeType: finalIdMime.slice(0, 80),
+      ...(hasBackDoc
+        ? { backFileName: safeBackFileName, backMimeType: finalIdBackMime.slice(0, 80) }
+        : {}),
+    };
+
     const regRecord: Record<string, unknown> = {
       registrationId,
       userId: uid,
@@ -1878,8 +2031,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       mobile: (input.mobile || '').trim().slice(0, 25),
       addressHouse: (input.addressHouse || '').trim().slice(0, 200),
       ...(postOffice ? { addressPostOffice: postOffice } : {}),
-      addressDistrict: (input.addressDistrict || '').trim().slice(0, 100),
-      addressState: (input.addressState || '').trim().slice(0, 100),
+      state: cleanState,
+      district: cleanDistrict,
+      addressDistrict: cleanDistrict,
+      addressState: cleanState,
       addressPin: (input.addressPin || '').trim().slice(0, 15),
       fatherName: (input.fatherName || '').trim().slice(0, 120),
       motherName: (input.motherName || '').trim().slice(0, 120),
@@ -1887,9 +2042,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ...(emergencyContact ? { emergencyContact } : {}),
       ...(emergencyRelation ? { emergencyRelation } : {}),
       idProofType: input.idProofType,
+      identityProof: identityProofObj,
       idProofFileName: safeFileName,
       idProofMimeType: finalIdMime.slice(0, 80),
-      storageBackend: 'firestore_private' as const,
+      ...(photoStoragePath ? { photoStoragePath } : {}),
+      ...(idProofStoragePath ? { idProofStoragePath } : {}),
+      ...(hasBackDoc
+        ? {
+            idProofBackFileName: safeBackFileName,
+            idProofBackMimeType: finalIdBackMime.slice(0, 80),
+            ...(idProofBackStoragePath ? { idProofBackStoragePath } : {}),
+          }
+        : {}),
+      storageBackend,
       roomPreference: input.roomPreference,
       ...(selectedRoomId ? { selectedRoomId } : {}),
       ...(selectedRoomName ? { selectedRoomName } : {}),
@@ -1909,7 +2074,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       updatedAt: serverTimestamp(),
     };
 
-    // Build login-free lookup record (strictly NO ID proof data stored here)
+    // Build login-free lookup record (strictly NO ID proof data or URLs stored here)
     const lookupRecord: Record<string, unknown> = {
       registrationId,
       registrationDocId: docId,
@@ -1919,8 +2084,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       mobile: regRecord.mobile,
       addressHouse: regRecord.addressHouse,
       ...(postOffice ? { addressPostOffice: postOffice } : {}),
-      addressDistrict: regRecord.addressDistrict,
-      addressState: regRecord.addressState,
+      state: cleanState,
+      district: cleanDistrict,
+      addressDistrict: cleanDistrict,
+      addressState: cleanState,
       addressPin: regRecord.addressPin,
       fatherName: regRecord.fatherName,
       motherName: regRecord.motherName,
@@ -1929,6 +2096,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ...(emergencyRelation ? { emergencyRelation } : {}),
       idProofType: input.idProofType,
       idProofFileName: safeFileName,
+      ...(hasBackDoc ? { hasIdProofBack: true } : {}),
       roomPreference: input.roomPreference,
       ...(selectedRoomName ? { selectedRoomName } : {}),
       monthlyRent,
@@ -1947,27 +2115,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const batch = writeBatch(db);
       const regDocRef = doc(db, 'registrations', docId);
-      const photoDocRef = doc(db, 'registrations', docId, 'documents', 'photo');
-      const idProofDocRef = doc(db, 'registrations', docId, 'documents', 'id_proof');
       const lookupDocRef = doc(db, 'registration_lookups', lookupKey);
 
       batch.set(regDocRef, regRecord);
-      batch.set(photoDocRef, {
-        docType: 'photo',
-        userId: uid,
-        fileName: 'student_photo.jpg',
-        mimeType: finalPhotoMime.slice(0, 80),
-        dataUrl: finalPhotoDataUrl,
-        createdAt: serverTimestamp(),
-      });
-      batch.set(idProofDocRef, {
-        docType: 'id_proof',
-        userId: uid,
-        fileName: safeFileName,
-        mimeType: finalIdMime.slice(0, 80),
-        dataUrl: finalIdDataUrl,
-        createdAt: serverTimestamp(),
-      });
+
+      if (storageBackend === 'firestore_private') {
+        const photoDocRef = doc(db, 'registrations', docId, 'documents', 'photo');
+        const idProofDocRef = doc(db, 'registrations', docId, 'documents', 'id_proof');
+
+        batch.set(photoDocRef, {
+          docType: 'photo',
+          userId: uid,
+          fileName: 'student_photo.jpg',
+          mimeType: finalPhotoMime.slice(0, 80),
+          dataUrl: finalPhotoDataUrl,
+          createdAt: serverTimestamp(),
+        });
+        batch.set(idProofDocRef, {
+          docType: 'id_proof',
+          userId: uid,
+          fileName: safeFileName,
+          mimeType: finalIdMime.slice(0, 80),
+          dataUrl: finalIdDataUrl,
+          createdAt: serverTimestamp(),
+        });
+        if (hasBackDoc) {
+          const idProofBackDocRef = doc(db, 'registrations', docId, 'documents', 'id_proof_back');
+          batch.set(idProofBackDocRef, {
+            docType: 'id_proof_back',
+            userId: uid,
+            fileName: safeBackFileName,
+            mimeType: finalIdBackMime.slice(0, 80),
+            dataUrl: finalIdBackDataUrl,
+            createdAt: serverTimestamp(),
+          });
+        }
+      }
+
       batch.set(lookupDocRef, lookupRecord);
 
       await batch.commit();
@@ -1984,8 +2168,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         mobile: String(regRecord.mobile),
         addressHouse: String(regRecord.addressHouse),
         addressPostOffice: postOffice,
-        addressDistrict: String(regRecord.addressDistrict),
-        addressState: String(regRecord.addressState),
+        state: cleanState,
+        district: cleanDistrict,
+        addressDistrict: cleanDistrict,
+        addressState: cleanState,
         addressPin: String(regRecord.addressPin),
         fatherName: String(regRecord.fatherName),
         motherName: String(regRecord.motherName),
@@ -1993,9 +2179,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         emergencyContact,
         emergencyRelation,
         idProofType: input.idProofType,
+        identityProof: identityProofObj,
         idProofFileName: safeFileName,
         idProofMimeType: finalIdMime.slice(0, 80),
-        storageBackend: 'firestore_private',
+        ...(photoStoragePath ? { photoStoragePath } : {}),
+        ...(idProofStoragePath ? { idProofStoragePath } : {}),
+        ...(hasBackDoc
+          ? {
+              idProofBackFileName: safeBackFileName,
+              idProofBackMimeType: finalIdBackMime.slice(0, 80),
+              ...(idProofBackStoragePath ? { idProofBackStoragePath } : {}),
+            }
+          : {}),
+        storageBackend,
         roomPreference: input.roomPreference,
         selectedRoomId,
         selectedRoomName,
@@ -2054,7 +2250,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const lookupKey = await computeRegistrationLookupKey(normalizedReg, normalizedMobile);
         const snap = await getDoc(doc(db, 'registration_lookups', lookupKey));
         if (!snap.exists()) return null;
-        return snap.data() as RegistrationLookupRecord;
+        const raw = snap.data() as Partial<RegistrationLookupRecord>;
+        const resolvedState = raw.state || raw.addressState || '';
+        const resolvedDistrict = raw.district || raw.addressDistrict || '';
+        return {
+          ...raw,
+          state: resolvedState,
+          district: resolvedDistrict,
+          addressState: resolvedState,
+          addressDistrict: resolvedDistrict,
+        } as RegistrationLookupRecord;
       } catch {
         return null;
       }
@@ -2084,8 +2289,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const result: RegistrationAssets = {
         photoDataUrl: null,
         idProofDataUrl: null,
-        idProofMimeType: reg.idProofMimeType || null,
-        idProofFileName: reg.idProofFileName || null,
+        idProofMimeType: reg.idProofMimeType || reg.identityProof?.frontMimeType || null,
+        idProofFileName: reg.idProofFileName || reg.identityProof?.frontFileName || null,
+        idProofBackDataUrl: null,
+        idProofBackMimeType: reg.idProofBackMimeType || reg.identityProof?.backMimeType || null,
+        idProofBackFileName: reg.idProofBackFileName || reg.identityProof?.backFileName || null,
         signedDocDataUrl: null,
         signedDocMimeType: reg.signedDocMimeType || null,
         signedDocFileName: reg.signedDocFileName || null,
@@ -2101,7 +2309,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const buf = await withTimeout(getBytes(storageRef(storage, reg.idProofStoragePath)), 4500);
             result.idProofDataUrl = arrayBufferToDataUrl(
               buf,
-              reg.idProofMimeType || 'image/jpeg'
+              result.idProofMimeType || 'image/jpeg'
+            );
+          }
+          if (reg.idProofBackStoragePath) {
+            const buf = await withTimeout(
+              getBytes(storageRef(storage, reg.idProofBackStoragePath)),
+              4500
+            );
+            result.idProofBackDataUrl = arrayBufferToDataUrl(
+              buf,
+              result.idProofBackMimeType || 'image/jpeg'
             );
           }
           if (reg.signedDocStoragePath) {
@@ -2135,6 +2353,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             result.idProofDataUrl = data.dataUrl;
             if (data.mimeType) result.idProofMimeType = data.mimeType;
             if (data.fileName) result.idProofFileName = data.fileName;
+          }
+          if (data.docType === 'id_proof_back' && data.dataUrl && !result.idProofBackDataUrl) {
+            result.idProofBackDataUrl = data.dataUrl;
+            if (data.mimeType) result.idProofBackMimeType = data.mimeType;
+            if (data.fileName) result.idProofBackFileName = data.fileName;
           }
           if (data.docType === 'signed_document' && data.dataUrl && !result.signedDocDataUrl) {
             result.signedDocDataUrl = data.dataUrl;

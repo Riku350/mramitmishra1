@@ -39,7 +39,13 @@ import {
   RULES_CONSENT_CHECKBOX_EN,
 } from '../data/hostelRules';
 import { PhotoCropModal } from './PhotoCropModal';
+import { StateSelect } from './StateSelect';
 import { DistrictSelect } from './DistrictSelect';
+import {
+  IDENTITY_PROOF_CONFIG,
+  IDENTITY_PROOF_TYPES,
+  IdentityProofType,
+} from '../data/identityProofTypes';
 import { generateRegistrationPdf } from '../utils/registrationPdf';
 import { optimizeImageFile, readFileAsDataUrl } from '../utils/imageOptimizer';
 
@@ -242,12 +248,20 @@ export function StayRegistrationView() {
   const [emergencyContact, setEmergencyContact] = useState('');
   const [emergencyRelation, setEmergencyRelation] = useState('');
 
-  // Step 3: Identity Proof
-  const [idProofType, setIdProofType] = useState<'Aadhaar Card' | 'Other Valid ID'>('Aadhaar Card');
+  // Step 4: Identity Proof (6 ID types + Front & Back multi-side support)
+  const [idProofType, setIdProofType] = useState<IdentityProofType>('Aadhaar Card');
   const [idProofFileName, setIdProofFileName] = useState('');
   const [idProofMimeType, setIdProofMimeType] = useState('');
   const [idProofDataUrl, setIdProofDataUrl] = useState<string | null>(null);
-  const idInputRef = useRef<HTMLInputElement | null>(null);
+  const [idProofBackFileName, setIdProofBackFileName] = useState('');
+  const [idProofBackMimeType, setIdProofBackMimeType] = useState('');
+  const [idProofBackDataUrl, setIdProofBackDataUrl] = useState<string | null>(null);
+  const [uploadingSide, setUploadingSide] = useState<'front' | 'back' | null>(null);
+  const idFrontInputRef = useRef<HTMLInputElement | null>(null);
+  const idFrontCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const idBackInputRef = useRef<HTMLInputElement | null>(null);
+  const idBackCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const activeIdConfig = IDENTITY_PROOF_CONFIG[idProofType];
 
   // Step 4: Student Photo + Non-destructive Crop Flow
   const [originalPhotoUrl, setOriginalPhotoUrl] = useState<string | null>(null);
@@ -431,11 +445,11 @@ export function StayRegistrationView() {
       if (!addressHouse.trim()) {
         errors.addressHouse = 'Please enter your address.';
       }
+      if (!addressState.trim()) {
+        errors.addressState = 'Please select your state.';
+      }
       if (!addressDistrict.trim()) {
         errors.addressDistrict = 'Please select your district.';
-      }
-      if (!addressState.trim()) {
-        errors.addressState = 'Please enter your state.';
       }
       if (!/^[0-9]{6}$/.test(addressPin.trim())) {
         errors.addressPin = 'Please enter a valid 6-digit PIN code.';
@@ -472,8 +486,12 @@ export function StayRegistrationView() {
     }
 
     if (targetStep === 4) {
+      const cfg = IDENTITY_PROOF_CONFIG[idProofType];
       if (!idProofDataUrl) {
-        errors.idProof = 'Please upload your ID proof.';
+        errors.idProofFront = cfg.frontRequiredError;
+      }
+      if (cfg.backRequired && !idProofBackDataUrl) {
+        errors.idProofBack = cfg.backRequiredError;
       }
     }
 
@@ -494,49 +512,65 @@ export function StayRegistrationView() {
     return errors;
   };
 
-  const handleIdProofUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleIdProofUpload = async (
+    side: 'front' | 'back',
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const errorKey = side === 'front' ? 'idProofFront' : 'idProofBack';
     setSubmitBannerError(null);
-    clearFieldError('idProof');
+    clearFieldError(errorKey);
 
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
     const lowerName = file.name.toLowerCase();
+    const hasValidExt = /\.(jpe?g|png|pdf)$/i.test(lowerName);
     const inferredMime =
       file.type ||
       (lowerName.endsWith('.pdf')
         ? 'application/pdf'
         : lowerName.endsWith('.png')
           ? 'image/png'
-          : 'image/jpeg');
+          : lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')
+            ? 'image/jpeg'
+            : '');
 
-    if (!allowedTypes.includes(inferredMime)) {
-      const msg = 'Only JPG, JPEG, PNG, or PDF files are allowed for Identity Proof.';
-      setFieldErrors({ idProof: msg });
-      triggerShakeAndFocus({ idProof: msg });
+    if (!allowedTypes.includes(inferredMime) && !hasValidExt) {
+      const msg = 'Please upload a valid image.';
+      setFieldErrors((prev) => ({ ...prev, [errorKey]: msg }));
+      triggerShakeAndFocus({ [errorKey]: msg });
+      e.target.value = '';
       return;
     }
 
-    const maxBytes = inferredMime === 'application/pdf' ? 620 * 1024 : 8 * 1024 * 1024;
+    const maxBytes = 5 * 1024 * 1024; // Maximum file size: 5 MB
     if (file.size > maxBytes) {
-      const msg =
-        inferredMime === 'application/pdf'
-          ? 'PDF file must be under 600 KB. Please upload a smaller PDF or JPG/PNG photo.'
-          : 'Image file must be under 8 MB.';
-      setFieldErrors({ idProof: msg });
-      triggerShakeAndFocus({ idProof: msg });
+      const msg = 'Maximum file size: 5 MB. Please upload a smaller file.';
+      setFieldErrors((prev) => ({ ...prev, [errorKey]: msg }));
+      triggerShakeAndFocus({ [errorKey]: msg });
+      e.target.value = '';
+      return;
+    }
+
+    if (inferredMime === 'application/pdf' && file.size > 620 * 1024) {
+      const msg = 'For PDF documents, please keep file size under 600 KB or upload a JPG/PNG photo (up to 5 MB).';
+      setFieldErrors((prev) => ({ ...prev, [errorKey]: msg }));
+      triggerShakeAndFocus({ [errorKey]: msg });
+      e.target.value = '';
       return;
     }
 
     setUploadingDoc(true);
+    setUploadingSide(side);
     try {
       let dataUrl = '';
-      let finalMime = inferredMime;
-      if (inferredMime.startsWith('image/')) {
+      let finalMime = inferredMime || 'image/jpeg';
+      if (finalMime.startsWith('image/')) {
+        // Optimize image cleanly without cropping so entire document content remains visible
         const optimized = await optimizeImageFile(file, {
           maxDimension: 1200,
           quality: 0.78,
-          maxChars: 550000,
+          maxChars: 540000,
           preferJpeg: true,
         });
         dataUrl = optimized.dataUrl;
@@ -544,18 +578,29 @@ export function StayRegistrationView() {
       } else {
         dataUrl = await readFileAsDataUrl(file);
       }
-      setIdProofFileName(file.name);
-      setIdProofMimeType(finalMime);
-      setIdProofDataUrl(dataUrl);
-      clearFieldError('idProof');
-      showToast('Identity proof uploaded.', 'success');
+
+      if (side === 'front') {
+        setIdProofFileName(file.name);
+        setIdProofMimeType(finalMime);
+        setIdProofDataUrl(dataUrl);
+      } else {
+        setIdProofBackFileName(file.name);
+        setIdProofBackMimeType(finalMime);
+        setIdProofBackDataUrl(dataUrl);
+      }
+      clearFieldError(errorKey);
+      showToast(
+        side === 'front' ? 'Front side document uploaded.' : 'Back side document uploaded.',
+        'success'
+      );
     } catch {
-      const msg = 'Unable to read the selected file. Please try another file.';
-      setFieldErrors({ idProof: msg });
-      triggerShakeAndFocus({ idProof: msg });
+      const msg = 'Please upload a valid image.';
+      setFieldErrors((prev) => ({ ...prev, [errorKey]: msg }));
+      triggerShakeAndFocus({ [errorKey]: msg });
     } finally {
       setUploadingDoc(false);
-      if (idInputRef.current) idInputRef.current.value = '';
+      setUploadingSide(null);
+      e.target.value = '';
     }
   };
 
@@ -648,6 +693,9 @@ export function StayRegistrationView() {
         idProofFileName: reg.idProofFileName,
         idProofMimeType: reg.idProofMimeType,
         idProofDataUrl,
+        idProofBackFileName: reg.idProofBackFileName || idProofBackFileName || undefined,
+        idProofBackMimeType: reg.idProofBackMimeType || idProofBackMimeType || undefined,
+        idProofBackDataUrl,
         photoDataUrl: croppedPhotoUrl,
       });
 
@@ -714,6 +762,9 @@ export function StayRegistrationView() {
         idProofFileName,
         idProofMimeType,
         idProofDataUrl: idProofDataUrl!,
+        idProofBackFileName: idProofBackDataUrl ? idProofBackFileName : undefined,
+        idProofBackMimeType: idProofBackDataUrl ? idProofBackMimeType : undefined,
+        idProofBackDataUrl: idProofBackDataUrl || null,
         photoDataUrl: croppedPhotoUrl!,
         roomPreference,
         selectedRoomId: selectedRoom?.id || '',
@@ -981,45 +1032,52 @@ export function StayRegistrationView() {
                 />
               </div>
 
+              <div className={shakingFields.addressState ? 'animate-field-shake' : ''}>
+                <label htmlFor="reg-state" className={labelClass}>
+                  Select State *
+                </label>
+                <StateSelect
+                  id="reg-state"
+                  value={addressState}
+                  placeholder="Select State"
+                  hasError={Boolean(fieldErrors.addressState)}
+                  triggerRef={registerFieldRef('addressState')}
+                  onChange={(newState) => {
+                    if (newState !== addressState) {
+                      setAddressDistrict('');
+                      clearFieldError('addressDistrict');
+                    }
+                    setAddressState(newState);
+                    clearFieldError('addressState');
+                  }}
+                />
+                <FieldErrorText message={fieldErrors.addressState} />
+              </div>
+
               <div className={shakingFields.addressDistrict ? 'animate-field-shake' : ''}>
                 <label htmlFor="reg-district" className={labelClass}>
                   Select District *
                 </label>
                 <DistrictSelect
                   id="reg-district"
+                  selectedState={addressState}
                   value={addressDistrict}
-                  placeholder="Select your district"
+                  placeholder="Select District"
                   hasError={Boolean(fieldErrors.addressDistrict)}
                   triggerRef={registerFieldRef('addressDistrict')}
-                  onChange={(district, stateName) => {
+                  onRequireState={() => {
+                    const stateEl = fieldRefs.current.addressState;
+                    if (stateEl && typeof (stateEl as HTMLButtonElement).focus === 'function') {
+                      (stateEl as HTMLButtonElement).focus();
+                      (stateEl as HTMLButtonElement).click();
+                    }
+                  }}
+                  onChange={(district) => {
                     setAddressDistrict(district);
                     clearFieldError('addressDistrict');
-                    if (stateName && stateName !== 'Other States & UTs') {
-                      setAddressState(stateName);
-                      clearFieldError('addressState');
-                    }
                   }}
                 />
                 <FieldErrorText message={fieldErrors.addressDistrict} />
-              </div>
-
-              <div>
-                <label htmlFor="reg-state" className={labelClass}>
-                  State *
-                </label>
-                <input
-                  id="reg-state"
-                  ref={registerFieldRef('addressState')}
-                  value={addressState}
-                  onChange={(e) => {
-                    setAddressState(e.target.value);
-                    if (e.target.value.trim()) clearFieldError('addressState');
-                  }}
-                  placeholder="State"
-                  aria-invalid={Boolean(fieldErrors.addressState)}
-                  className={fieldInputClass('addressState')}
-                />
-                <FieldErrorText message={fieldErrors.addressState} />
               </div>
 
               <div>
@@ -1162,139 +1220,377 @@ export function StayRegistrationView() {
           <div>
             <h2 className="text-xl font-bold text-slate-900">Identity Proof</h2>
             <p className="text-sm text-slate-500 mt-0.5">
-              Select ID type and upload a clear JPG, JPEG, PNG, or PDF copy.
+              Select your ID type and upload clear uncropped photos (JPG, JPEG, PNG, or PDF).
+              Maximum file size: 5 MB.
             </p>
           </div>
 
-          <div className="space-y-2">
-            <label className={labelClass}>Select ID Type *</label>
-            <div className="flex flex-wrap gap-2.5">
-              {(['Aadhaar Card', 'Other Valid ID'] as const).map((opt) => (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => setIdProofType(opt)}
-                  className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                    idProofType === opt
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  {opt}
-                </button>
-              ))}
+          {/* Select ID Type Dropdown + Clean Cards */}
+          <div className="space-y-3">
+            <div className="max-w-md">
+              <label htmlFor="reg-id-proof-type" className={labelClass}>
+                Select ID Type *
+              </label>
+              <select
+                id="reg-id-proof-type"
+                value={idProofType}
+                onChange={(e) => {
+                  const nextType = e.target.value as IdentityProofType;
+                  setIdProofType(nextType);
+                  clearFieldError('idProofFront');
+                  clearFieldError('idProofBack');
+                }}
+                className={normalInputClass}
+              >
+                {IDENTITY_PROOF_TYPES.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              {IDENTITY_PROOF_TYPES.map((opt) => {
+                const cfg = IDENTITY_PROOF_CONFIG[opt];
+                const isSelected = idProofType === opt;
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => {
+                      setIdProofType(opt);
+                      clearFieldError('idProofFront');
+                      clearFieldError('idProofBack');
+                    }}
+                    className={`text-left p-3 rounded-2xl border transition-all ${
+                      isSelected
+                        ? 'border-blue-600 bg-blue-50/70 ring-2 ring-blue-500/15'
+                        : 'border-slate-200 bg-white hover:bg-slate-50'
+                    }`}
+                  >
+                    <p
+                      className={`text-xs sm:text-sm font-bold ${
+                        isSelected ? 'text-blue-700' : 'text-slate-900'
+                      }`}
+                    >
+                      {cfg.shortLabel}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                      {cfg.description}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
+          {/* Hidden File & Camera Inputs for Front and Back */}
           <input
-            ref={idInputRef}
+            ref={idFrontInputRef}
             type="file"
             accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
-            onChange={handleIdProofUpload}
+            onChange={(e) => handleIdProofUpload('front', e)}
+            className="hidden"
+          />
+          <input
+            ref={idFrontCameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={(e) => handleIdProofUpload('front', e)}
+            className="hidden"
+          />
+          <input
+            ref={idBackInputRef}
+            type="file"
+            accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
+            onChange={(e) => handleIdProofUpload('back', e)}
+            className="hidden"
+          />
+          <input
+            ref={idBackCameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={(e) => handleIdProofUpload('back', e)}
             className="hidden"
           />
 
-          <div className={shakingFields.idProof ? 'animate-field-shake' : ''}>
-            {!idProofDataUrl ? (
+          {/* Upload Cards (Front + Back) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* FRONT SIDE / PRIMARY DOCUMENT CARD */}
+            <div className={shakingFields.idProofFront ? 'animate-field-shake' : ''}>
               <div
-                className={`border-2 border-dashed rounded-2xl p-8 text-center space-y-3 transition-colors ${
-                  fieldErrors.idProof
-                    ? 'border-red-500 bg-red-50/40'
-                    : 'border-slate-200 bg-slate-50/50'
+                className={`h-full rounded-2xl border p-5 flex flex-col justify-between gap-4 transition-colors ${
+                  fieldErrors.idProofFront
+                    ? 'border-red-500 bg-red-50/35 ring-1 ring-red-500/20'
+                    : idProofDataUrl
+                      ? 'border-emerald-200 bg-emerald-50/20'
+                      : 'border-slate-200 bg-slate-50/40'
                 }`}
               >
-                <div
-                  className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto ${
-                    fieldErrors.idProof
-                      ? 'bg-red-100 text-red-600'
-                      : 'bg-blue-50 text-blue-600'
-                  }`}
-                >
-                  {uploadingDoc ? (
-                    <Loader2 className="w-6 h-6 animate-spin" />
-                  ) : (
-                    <Upload className="w-6 h-6" />
-                  )}
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm font-semibold text-slate-900">
-                    {uploadingDoc ? 'Uploading Document...' : `Upload ${idProofType}`}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    Allowed formats: JPG, JPEG, PNG (up to 8 MB) or PDF (up to 600 KB)
-                  </p>
-                </div>
-                <button
-                  ref={registerFieldRef('idProof')}
-                  type="button"
-                  disabled={uploadingDoc}
-                  onClick={() => idInputRef.current?.click()}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                >
-                  <Upload className="w-4 h-4" />
-                  <span>{uploadingDoc ? 'Uploading Document...' : 'Upload Identity Proof'}</span>
-                </button>
-              </div>
-            ) : (
-              <div className="border border-slate-200 rounded-2xl p-5 space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-slate-900 truncate">{idProofFileName}</p>
-                    <p className="text-xs text-emerald-700 font-medium">
-                      {idProofType} · Uploaded &amp; ready for private storage
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      {activeIdConfig.frontHeading} *
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      JPG, JPEG, PNG, or PDF · Maximum file size: 5 MB
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => idInputRef.current?.click()}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Replace</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIdProofDataUrl(null);
-                        setIdProofFileName('');
-                        setIdProofMimeType('');
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-amber-200 text-xs font-medium text-amber-800 hover:bg-amber-50"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Remove</span>
-                    </button>
-                  </div>
+                  {idProofDataUrl && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-[11px] font-bold shrink-0">
+                      {activeIdConfig.frontUploadedBadge}
+                    </span>
+                  )}
                 </div>
 
-                {idProofMimeType.startsWith('image/') ? (
-                  <div className="rounded-xl overflow-hidden border border-slate-100 bg-slate-50 flex justify-center p-3">
-                    <img
-                      src={idProofDataUrl}
-                      alt="Uploaded ID Proof preview"
-                      className="max-h-64 object-contain rounded-lg"
-                    />
+                {!idProofDataUrl ? (
+                  <div className="border-2 border-dashed border-slate-200 rounded-xl bg-white p-5 text-center space-y-3">
+                    <div
+                      className={`w-11 h-11 rounded-xl flex items-center justify-center mx-auto ${
+                        fieldErrors.idProofFront
+                          ? 'bg-red-100 text-red-600'
+                          : 'bg-blue-50 text-blue-600'
+                      }`}
+                    >
+                      {uploadingDoc && uploadingSide === 'front' ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Upload className="w-5 h-5" />
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Ensure all details are clear and completely visible (no cropping needed).
+                    </p>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <button
+                        ref={registerFieldRef('idProofFront')}
+                        type="button"
+                        disabled={uploadingDoc}
+                        onClick={() => idFrontInputRef.current?.click()}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white text-xs sm:text-sm font-semibold hover:bg-blue-700 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                      >
+                        <Upload className="w-4 h-4" />
+                        <span>
+                          {uploadingDoc && uploadingSide === 'front'
+                            ? 'Uploading...'
+                            : activeIdConfig.frontButtonLabel}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={uploadingDoc}
+                        onClick={() => idFrontCameraInputRef.current?.click()}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs sm:text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        <Camera className="w-4 h-4 text-blue-600" />
+                        <span>Camera</span>
+                      </button>
+                    </div>
                   </div>
                 ) : (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 flex items-center gap-3">
-                    <FileText className="w-8 h-8 text-blue-600 shrink-0" />
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">PDF Document Attached</p>
-                      <p className="text-xs text-slate-500">{idProofFileName}</p>
+                  <div className="space-y-3">
+                    {idProofMimeType.startsWith('image/') ? (
+                      <div className="rounded-xl overflow-hidden border border-slate-200 bg-white flex justify-center p-2.5">
+                        <img
+                          src={idProofDataUrl}
+                          alt={`${activeIdConfig.frontHeading} preview`}
+                          className="max-h-48 w-auto max-w-full object-contain rounded-lg"
+                        />
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-slate-200 bg-white p-3.5 flex items-center gap-3">
+                        <FileText className="w-7 h-7 text-blue-600 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-slate-900">PDF Document Ready</p>
+                          <p className="text-[11px] text-slate-500 truncate">{idProofFileName}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[11px] text-slate-500 truncate max-w-[160px]">
+                        {idProofFileName}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          ref={registerFieldRef('idProofFront')}
+                          type="button"
+                          onClick={() => idFrontInputRef.current?.click()}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Change</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIdProofDataUrl(null);
+                            setIdProofFileName('');
+                            setIdProofMimeType('');
+                          }}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white border border-amber-200 text-xs font-semibold text-amber-800 hover:bg-amber-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Remove</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
+              <FieldErrorText message={fieldErrors.idProofFront} />
+            </div>
+
+            {/* BACK SIDE DOCUMENT CARD (Required for Aadhaar Card, Optional for other IDs) */}
+            {activeIdConfig.supportsBackSide && (
+              <div className={shakingFields.idProofBack ? 'animate-field-shake' : ''}>
+                <div
+                  className={`h-full rounded-2xl border p-5 flex flex-col justify-between gap-4 transition-colors ${
+                    fieldErrors.idProofBack
+                      ? 'border-red-500 bg-red-50/35 ring-1 ring-red-500/20'
+                      : idProofBackDataUrl
+                        ? 'border-emerald-200 bg-emerald-50/20'
+                        : 'border-slate-200 bg-slate-50/40'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        {activeIdConfig.backHeading}
+                        {activeIdConfig.backRequired ? ' *' : ''}
+                      </h3>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        {activeIdConfig.backRequired
+                          ? 'Required for Aadhaar verification · Max 5 MB'
+                          : 'Upload if your ID has address/details on the back'}
+                      </p>
+                    </div>
+                    {idProofBackDataUrl && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-[11px] font-bold shrink-0">
+                        {activeIdConfig.backUploadedBadge}
+                      </span>
+                    )}
+                  </div>
+
+                  {!idProofBackDataUrl ? (
+                    <div className="border-2 border-dashed border-slate-200 rounded-xl bg-white p-5 text-center space-y-3">
+                      <div
+                        className={`w-11 h-11 rounded-xl flex items-center justify-center mx-auto ${
+                          fieldErrors.idProofBack
+                            ? 'bg-red-100 text-red-600'
+                            : activeIdConfig.backRequired
+                              ? 'bg-blue-50 text-blue-600'
+                              : 'bg-slate-100 text-slate-500'
+                        }`}
+                      >
+                        {uploadingDoc && uploadingSide === 'back' ? (
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                          <Upload className="w-5 h-5" />
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {activeIdConfig.backRequired
+                          ? 'Upload clear photo of the back side showing your address.'
+                          : 'Optional: attach the back side if applicable.'}
+                      </p>
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        <button
+                          ref={registerFieldRef('idProofBack')}
+                          type="button"
+                          disabled={uploadingDoc}
+                          onClick={() => idBackInputRef.current?.click()}
+                          className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-blue-500/30 ${
+                            activeIdConfig.backRequired
+                              ? 'bg-blue-600 text-white hover:bg-blue-700'
+                              : 'bg-slate-800 text-white hover:bg-slate-900'
+                          }`}
+                        >
+                          <Upload className="w-4 h-4" />
+                          <span>
+                            {uploadingDoc && uploadingSide === 'back'
+                              ? 'Uploading...'
+                              : activeIdConfig.backButtonLabel}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={uploadingDoc}
+                          onClick={() => idBackCameraInputRef.current?.click()}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs sm:text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+                        >
+                          <Camera className="w-4 h-4 text-blue-600" />
+                          <span>Camera</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {idProofBackMimeType.startsWith('image/') ? (
+                        <div className="rounded-xl overflow-hidden border border-slate-200 bg-white flex justify-center p-2.5">
+                          <img
+                            src={idProofBackDataUrl}
+                            alt={`${activeIdConfig.backHeading} preview`}
+                            className="max-h-48 w-auto max-w-full object-contain rounded-lg"
+                          />
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-slate-200 bg-white p-3.5 flex items-center gap-3">
+                          <FileText className="w-7 h-7 text-blue-600 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-slate-900">PDF Document Ready</p>
+                            <p className="text-[11px] text-slate-500 truncate">
+                              {idProofBackFileName}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-[11px] text-slate-500 truncate max-w-[160px]">
+                          {idProofBackFileName}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            ref={registerFieldRef('idProofBack')}
+                            type="button"
+                            onClick={() => idBackInputRef.current?.click()}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>Change</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIdProofBackDataUrl(null);
+                              setIdProofBackFileName('');
+                              setIdProofBackMimeType('');
+                            }}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white border border-amber-200 text-xs font-semibold text-amber-800 hover:bg-amber-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Remove</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <FieldErrorText message={fieldErrors.idProofBack} />
+              </div>
             )}
-            <FieldErrorText message={fieldErrors.idProof} />
           </div>
 
           <div className="flex items-start gap-2.5 text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-xl p-3.5">
             <Shield className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
             <span>
               Your ID proof is stored privately and is strictly restricted to authorized hostel
-              administration at {hostelBrandName}. It is never publicly displayed.
+              administration at {hostelBrandName}. It is never publicly displayed or shared in the
+              gallery.
             </span>
           </div>
         </section>
@@ -1419,6 +1715,18 @@ export function StayRegistrationView() {
                     >
                       <Crop className="w-4 h-4" />
                       <span>Crop Again</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOriginalPhotoUrl(null);
+                        setCroppedPhotoUrl(null);
+                        setPhotoConfirmed(false);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-amber-200 text-xs sm:text-sm font-medium text-amber-800 hover:bg-amber-50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Remove</span>
                     </button>
                     <button
                       ref={registerFieldRef('photo')}
@@ -1751,6 +2059,9 @@ export function StayRegistrationView() {
                   <strong className="text-slate-900">Mobile:</strong> {mobile}
                 </p>
                 <p>
+                  <strong className="text-slate-900">State:</strong> {addressState}
+                </p>
+                <p>
                   <strong className="text-slate-900">District:</strong> {addressDistrict}
                 </p>
                 <p>
@@ -1825,7 +2136,7 @@ export function StayRegistrationView() {
             </div>
 
             {/* Identity Proof */}
-            <div className="border border-slate-200/80 rounded-2xl p-5 space-y-2">
+            <div className="border border-slate-200/80 rounded-2xl p-5 space-y-2.5">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-slate-900">Identity Proof</h3>
                 <button
@@ -1836,16 +2147,52 @@ export function StayRegistrationView() {
                   Edit
                 </button>
               </div>
-              <p className="text-xs sm:text-sm text-emerald-700 font-medium">
-                {idProofType} uploaded ({idProofFileName})
-              </p>
-              {idProofDataUrl && idProofMimeType.startsWith('image/') && (
-                <img
-                  src={idProofDataUrl}
-                  alt="ID proof thumbnail"
-                  className="h-24 object-contain rounded-lg border border-slate-100 bg-slate-50 p-1"
-                />
-              )}
+              <div className="text-xs sm:text-sm space-y-1 text-slate-600">
+                <p>
+                  <strong className="text-slate-900">ID Type:</strong> {idProofType}
+                </p>
+                {idProofType === 'Aadhaar Card' || idProofBackDataUrl ? (
+                  <>
+                    <p>
+                      <strong className="text-slate-900">Front Side:</strong>{' '}
+                      <span className="text-emerald-700 font-semibold">✓ Uploaded</span>
+                    </p>
+                    <p>
+                      <strong className="text-slate-900">Back Side:</strong>{' '}
+                      <span className="text-emerald-700 font-semibold">✓ Uploaded</span>
+                    </p>
+                  </>
+                ) : (
+                  <p>
+                    <strong className="text-slate-900">Document:</strong>{' '}
+                    <span className="text-emerald-700 font-semibold">✓ Uploaded</span>
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2.5 pt-1">
+                {idProofDataUrl && idProofMimeType.startsWith('image/') && (
+                  <div className="space-y-1">
+                    <img
+                      src={idProofDataUrl}
+                      alt="ID proof front thumbnail"
+                      className="h-24 max-w-[160px] object-contain rounded-lg border border-slate-200 bg-slate-50 p-1"
+                    />
+                    {(idProofType === 'Aadhaar Card' || idProofBackDataUrl) && (
+                      <p className="text-[11px] font-medium text-slate-500 text-center">Front</p>
+                    )}
+                  </div>
+                )}
+                {idProofBackDataUrl && idProofBackMimeType.startsWith('image/') && (
+                  <div className="space-y-1">
+                    <img
+                      src={idProofBackDataUrl}
+                      alt="ID proof back thumbnail"
+                      className="h-24 max-w-[160px] object-contain rounded-lg border border-slate-200 bg-slate-50 p-1"
+                    />
+                    <p className="text-[11px] font-medium text-slate-500 text-center">Back</p>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Student Photo */}
